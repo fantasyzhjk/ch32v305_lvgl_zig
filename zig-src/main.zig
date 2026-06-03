@@ -1,8 +1,10 @@
+const std = @import("std");
 const ch32 = @import("ch32.zig");
 const hal = ch32.hal;
 const c = ch32.c;
 const lcd = @import("lcd.zig");
 const debug = @import("debug.zig");
+const ui = @import("ui.zig");
 
 fn initLedPin() void {
     var gpio: hal.GPIO_InitTypeDef = .{
@@ -19,59 +21,8 @@ fn initLedPin() void {
     hal.GPIO_Init(hal.GPIOA, &gpio);
 }
 
-fn drawDemoGraphics() void {
-    // 1. 清屏为黑色
-    lcd.fill(0, 0, lcd.WIDTH, lcd.HEIGHT, lcd.Color.BLACK);
-    c.Delay_Ms(100);
-
-    // 2. 标题文字（不同字号）
-    lcd.fore_color = lcd.Color.WHITE;
-    lcd.back_color = lcd.Color.BLACK;
-    lcd.showString(10, 5, 16, "Zig LCD Graphics Demo");
-
-    lcd.fore_color = lcd.Color.GREEN;
-    lcd.showString(10, 22, 12, "CH32V305 + SPI TFT 240x240");
-
-    // 3. 彩色水平线（RGB）
-    lcd.fore_color = lcd.Color.RED;
-    lcd.drawLine(10, 38, 230, 38);
-    lcd.fore_color = lcd.Color.GREEN;
-    lcd.drawLine(10, 41, 230, 41);
-    lcd.fore_color = lcd.Color.BLUE;
-    lcd.drawLine(10, 44, 230, 44);
-
-    // 4. 空心矩形 + 填充矩形
-    lcd.fore_color = lcd.Color.YELLOW;
-    lcd.drawRectangle(15, 55, 105, 115);
-    lcd.fill(115, 55, 225, 115, lcd.Color.MAGENTA);
-
-    // 5. 空心圆（不同颜色、不同半径）
-    lcd.fore_color = lcd.Color.CYAN;
-    lcd.drawCircle(60, 145, 28);
-    lcd.fore_color = lcd.Color.ORANGE;
-    lcd.drawCircle(180, 145, 22);
-
-    // 6. 交叉斜线（形成三角形）
-    lcd.fore_color = lcd.Color.PURPLE;
-    lcd.drawLine(20, 200, 120, 110);
-    lcd.fore_color = lcd.Color.GOLD;
-    lcd.drawLine(220, 200, 120, 110);
-
-    // 7. 点阵虚线
-    lcd.fore_color = lcd.Color.WHITE;
-    var i: u16 = 0;
-    while (i < 40) : (i += 1) {
-        lcd.drawPoint(90 + i * 2, 185);
-    }
-
-    // 8. 数字显示
-    lcd.fore_color = lcd.Color.LGRAY;
-    lcd.showNum(160, 185, 305, 3, 16);
-
-    // 9. 底部说明文字
-    lcd.fore_color = lcd.Color.SILVER;
-    lcd.showString(10, 210, 24, "Hello from Zig!");
-}
+// 裸机环境堆内存配置 (20KB SRAM)
+var heap_memory: [20 * 1024]u8 = undefined;
 
 pub export fn main() noreturn {
     hal.NVIC_PriorityGroupConfig(hal.NVIC_PriorityGroup_2);
@@ -81,22 +32,116 @@ pub export fn main() noreturn {
 
     lcd.init();
 
-    debug.print("hello from zig\r\n", .{});
+    debug.print("hello from zig DVD animation\r\n", .{});
 
-    // 绘制丰富的图形演示
-    drawDemoGraphics();
+    // 初始化动态内存分配器
+    var fba = std.heap.FixedBufferAllocator.init(&heap_memory);
+    const allocator = fba.allocator();
 
-    var counter: u32 = 0;
+    // 背景清屏
+    lcd.fill(0, 0, lcd.WIDTH, lcd.HEIGHT, lcd.Color.BLACK);
+    c.Delay_Ms(100);
+
+    // DVD 动画状态变量
+    var old_x: i32 = 40;
+    var old_y: i32 = 50;
+    var new_x: i32 = 40;
+    var new_y: i32 = 50;
+    var dvd_dx: i32 = 3;
+    var dvd_dy: i32 = 3;
+    const dvd_w: u16 = 60;
+    const dvd_h: u16 = 30;
+    
+    // 标题滚动状态变量
+    var title_x: i32 = 240; // 从最右侧出现
+    
+    // DVD 运动区域边界
+    const min_y: i32 = 20;
+
     var led_on = false;
 
     while (true) {
-        counter += 1;
-        if (counter >= 500) {
-            counter = 0;
-            led_on = !led_on;
-            hal.GPIO_WriteBit(hal.GPIOA, hal.GPIO_Pin_3, if (led_on) hal.Bit_SET else hal.Bit_RESET);
+        // --- 1. 更新顶部滚动标题 ---
+        title_x -= 2;
+        if (title_x < -200) {
+            title_x = 240; // 滚动到底重置
+        }
+        
+        if (ui.Canvas.create(allocator, 0, 0, 240, 20)) |canvas_val| {
+            var title_canvas = canvas_val;
+            defer title_canvas.destroy(allocator);
+            
+            title_canvas.clear(lcd.Color.WHITE);
+            title_canvas.showString(title_x, 2, 16, "Zig Zoned UI & DVD Demo", lcd.Color.BLACK, lcd.Color.WHITE);
+            title_canvas.flush();
+        } else |_| {
+            debug.print("OOM: Failed to alloc title canvas\r\n", .{});
         }
 
-        c.Delay_Ms(1);
+        // --- 2. 更新 DVD 动画 ---
+        new_x = old_x + dvd_dx;
+        new_y = old_y + dvd_dy;
+
+        // 边缘碰撞检测并反弹
+        if (new_x <= 0) {
+            new_x = 0;
+            dvd_dx = -dvd_dx;
+            led_on = !led_on;
+        } else if (new_x + dvd_w >= lcd.WIDTH) {
+            new_x = lcd.WIDTH - dvd_w;
+            dvd_dx = -dvd_dx;
+            led_on = !led_on;
+        }
+
+        if (new_y <= min_y) {
+            new_y = min_y;
+            dvd_dy = -dvd_dy;
+            led_on = !led_on;
+        } else if (new_y + dvd_h >= lcd.HEIGHT) {
+            new_y = lcd.HEIGHT - dvd_h;
+            dvd_dy = -dvd_dy;
+            led_on = !led_on;
+        }
+
+        hal.GPIO_WriteBit(hal.GPIOA, hal.GPIO_Pin_3, if (led_on) hal.Bit_SET else hal.Bit_RESET);
+
+        // 计算脏区域 (Dirty Region) 包含旧位置和新位置
+        const old_rect = ui.Rect{ .x = @intCast(old_x), .y = @intCast(old_y), .w = dvd_w, .h = dvd_h };
+        const new_rect = ui.Rect{ .x = @intCast(new_x), .y = @intCast(new_y), .w = dvd_w, .h = dvd_h };
+        const dirty_rect = old_rect.unionRect(new_rect);
+
+        // 动态分配脏区域大小的 Canvas
+        if (ui.Canvas.create(allocator, dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h)) |canvas_val| {
+            var dirty_canvas = canvas_val;
+            defer dirty_canvas.destroy(allocator);
+
+            // 1. 清理背景 (在内存中，无闪烁)
+            dirty_canvas.clear(lcd.Color.BLACK);
+
+            // 2. 绘制新的 DVD 图像 (计算在新 Canvas 中的相对坐标)
+            const rel_x = @as(u16, @intCast(new_x)) - dirty_rect.x;
+            const rel_y = @as(u16, @intCast(new_y)) - dirty_rect.y;
+
+            const dvd_bg = if (dvd_dx > 0 and dvd_dy > 0) lcd.Color.BLUE else 
+                           if (dvd_dx < 0 and dvd_dy > 0) lcd.Color.RED else 
+                           if (dvd_dx > 0 and dvd_dy < 0) lcd.Color.MAGENTA else 
+                           lcd.Color.CYAN;
+
+            dirty_canvas.fillRect(rel_x, rel_y, dvd_w, dvd_h, dvd_bg);
+            dirty_canvas.drawRect(rel_x, rel_y, dvd_w, dvd_h, lcd.Color.WHITE);
+            dirty_canvas.drawRect(rel_x + 2, rel_y + 2, dvd_w - 4, dvd_h - 4, lcd.Color.YELLOW);
+            dirty_canvas.showString(rel_x + 14, rel_y + 8, 16, "DVD", lcd.Color.WHITE, dvd_bg);
+
+            // 3. DMA 将完美的复合图像推送到屏幕的脏区域
+            dirty_canvas.flush();
+        } else |_| {
+            debug.print("OOM: Failed to alloc dirty region\r\n", .{});
+        }
+
+        // 保存新位置作为下一次的旧位置
+        old_x = new_x;
+        old_y = new_y;
+
+        c.Delay_Ms(15);
     }
 }

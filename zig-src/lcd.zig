@@ -93,36 +93,79 @@ pub fn fill(xsta: u16, ysta: u16, xend: u16, yend: u16, color: u16) void {
 
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
 
-    const high_byte: u8 = @intCast(color >> 8);
-    const low_byte: u8 = @intCast(color & 0xFF);
+    const count: u32 = @as(u32, xend - xsta) * @as(u32, yend - ysta);
 
-    var i: u16 = ysta;
-    while (i < yend) : (i += 1) {
-        var j: u16 = xsta;
-        while (j < xend) : (j += 1) {
-            spiWaitTx();
-            hal.SPI_I2S_SendData(hal.SPI2, high_byte);
-            spiWaitTx();
-            hal.SPI_I2S_SendData(hal.SPI2, low_byte);
-        }
+    // Switch SPI to 16-bit mode for DMA
+    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
+    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_16b);
+    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
+
+    var remaining = count;
+    while (remaining > 0) {
+        const chunk_size: u16 = if (remaining > 65535) 65535 else @intCast(remaining);
+
+        hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
+
+        // For filling, we do NOT increment memory. We read the same color variable repeatedly.
+        hal.DMA1_Channel5.*.CFGR &= ~hal.DMA_MemoryInc_Enable; // Clear MINC bit
+        hal.DMA1_Channel5.*.MADDR = @intFromPtr(&color);
+        hal.DMA1_Channel5.*.CNTR = chunk_size;
+        hal.DMA_Cmd(hal.DMA1_Channel5, hal.ENABLE);
+
+        while (hal.DMA_GetFlagStatus(hal.DMA1_FLAG_TC5) == hal.RESET) {}
+        hal.DMA_ClearFlag(hal.DMA1_FLAG_TC5);
+
+        remaining -= chunk_size;
     }
 
+    // Restore DMA setting for future writePixels calls
+    hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
+    hal.DMA1_Channel5.*.CFGR |= hal.DMA_MemoryInc_Enable;
+
     spiWaitBusIdle();
+
+    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
+    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_8b);
+    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
+
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
 }
 
 pub fn writePixels(pixels: [*]const u16, count: u32) void {
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
 
-    for (0..count) |i| {
-        const color = pixels[i];
-        spiWaitTx();
-        hal.SPI_I2S_SendData(hal.SPI2, @intCast(color >> 8));
-        spiWaitTx();
-        hal.SPI_I2S_SendData(hal.SPI2, @intCast(color & 0xFF));
+    // Switch SPI to 16-bit mode for DMA
+    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
+    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_16b);
+    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
+
+    var remaining = count;
+    var current_ptr = pixels;
+
+    while (remaining > 0) {
+        const chunk_size: u16 = if (remaining > 65535) 65535 else @intCast(remaining);
+
+        hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
+        hal.DMA1_Channel5.*.MADDR = @intFromPtr(current_ptr);
+        hal.DMA1_Channel5.*.CNTR = chunk_size;
+        hal.DMA_Cmd(hal.DMA1_Channel5, hal.ENABLE);
+
+        // Wait for DMA completion
+        while (hal.DMA_GetFlagStatus(hal.DMA1_FLAG_TC5) == hal.RESET) {}
+        hal.DMA_ClearFlag(hal.DMA1_FLAG_TC5);
+
+        remaining -= chunk_size;
+        current_ptr += chunk_size;
     }
 
+    // Wait for SPI bus to become completely idle before ending
     spiWaitBusIdle();
+
+    // Revert SPI to 8-bit mode
+    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
+    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_8b);
+    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
+
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
 }
 
@@ -421,6 +464,27 @@ fn initGpio() void {
     hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
 }
 
+fn initDma() void {
+    hal.RCC_AHBPeriphClockCmd(hal.RCC_AHBPeriph_DMA1, hal.ENABLE);
+
+    var dma: hal.DMA_InitTypeDef = undefined;
+    hal.DMA_StructInit(&dma);
+    dma.DMA_PeripheralBaseAddr = @intFromPtr(&hal.SPI2.*.DATAR);
+    dma.DMA_MemoryBaseAddr = 0;
+    dma.DMA_DIR = hal.DMA_DIR_PeripheralDST;
+    dma.DMA_BufferSize = 0;
+    dma.DMA_PeripheralInc = hal.DMA_PeripheralInc_Disable;
+    dma.DMA_MemoryInc = hal.DMA_MemoryInc_Enable;
+    dma.DMA_PeripheralDataSize = hal.DMA_PeripheralDataSize_HalfWord;
+    dma.DMA_MemoryDataSize = hal.DMA_MemoryDataSize_HalfWord;
+    dma.DMA_Mode = hal.DMA_Mode_Normal;
+    dma.DMA_Priority = hal.DMA_Priority_High;
+    dma.DMA_M2M = hal.DMA_M2M_Disable;
+
+    hal.DMA_Init(hal.DMA1_Channel5, &dma);
+    hal.SPI_I2S_DMACmd(hal.SPI2, hal.SPI_I2S_DMAReq_Tx, hal.ENABLE);
+}
+
 pub fn init() void {
     const Entry = struct { cmd: u8, data: []const u8 };
     const madctl = switch (USE_HORIZONTAL) {
@@ -448,6 +512,7 @@ pub fn init() void {
     };
 
     initGpio();
+    initDma();
 
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_11, hal.Bit_SET);
     c.Delay_Ms(100);
@@ -463,15 +528,6 @@ pub fn init() void {
             writeData8(d);
         }
     }
-
-    c.Delay_Ms(100);
-    fill(0, 0, WIDTH, HEIGHT, Color.BLUE);
-    c.Delay_Ms(100);
-    fill(0, 0, WIDTH, HEIGHT, Color.RED);
-    c.Delay_Ms(100);
-    fill(0, 0, WIDTH, HEIGHT, Color.BLACK);
-    c.Delay_Ms(100);
-    fill(0, 0, WIDTH, HEIGHT, Color.WHITE);
 }
 
 // ── C-compatible exports ─────────────────────────────────────────
