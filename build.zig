@@ -23,11 +23,11 @@ const peripheral_sources = [_][]const u8{
     "hal/Peripheral/src/ch32v30x_tim.c",
     "hal/Peripheral/src/ch32v30x_usart.c",
     "hal/Peripheral/src/ch32v30x_wwdg.c",
+    "hal/Core/core_riscv.c",
+    "hal/Debug/debug.c",
 };
 
 const c_sources = [_][]const u8{
-    "hal/Core/core_riscv.c",
-    "hal/Debug/debug.c",
     "zig-src/c/src/stdio.c",
     "zig-src/c/src/system_ch32v30x.c",
     "zig-src/c/src/ch32v30x_it.c",

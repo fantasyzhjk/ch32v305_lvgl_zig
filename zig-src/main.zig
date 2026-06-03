@@ -51,10 +51,10 @@ pub export fn main() noreturn {
     var dvd_dy: i32 = 3;
     const dvd_w: u16 = 60;
     const dvd_h: u16 = 30;
-    
+
     // 标题滚动状态变量
     var title_x: i32 = 240; // 从最右侧出现
-    
+
     // DVD 运动区域边界
     const min_y: i32 = 20;
 
@@ -66,13 +66,15 @@ pub export fn main() noreturn {
         if (title_x < -200) {
             title_x = 240; // 滚动到底重置
         }
-        
+
         if (ui.Canvas.create(allocator, 0, 0, 240, 20)) |canvas_val| {
             var title_canvas = canvas_val;
             defer title_canvas.destroy(allocator);
-            
+
             title_canvas.clear(lcd.Color.WHITE);
-            title_canvas.showString(title_x, 2, 16, "Zig Zoned UI & DVD Demo", lcd.Color.BLACK, lcd.Color.WHITE);
+            const s = std.fmt.allocPrint(allocator, "Zig Zoned UI & DVD Demo @ {}", .{@as(*volatile i32, &lcd.dma_tc_flag).*}) catch "Zig Zoned UI & DVD Demo";
+            defer allocator.free(s);
+            title_canvas.showString(title_x, 2, 16, s, lcd.Color.BLACK, lcd.Color.WHITE);
             title_canvas.flush();
         } else |_| {
             debug.print("OOM: Failed to alloc title canvas\r\n", .{});
@@ -122,15 +124,15 @@ pub export fn main() noreturn {
             const rel_x = @as(u16, @intCast(new_x)) - dirty_rect.x;
             const rel_y = @as(u16, @intCast(new_y)) - dirty_rect.y;
 
-            const dvd_bg = if (dvd_dx > 0 and dvd_dy > 0) lcd.Color.BLUE else 
-                           if (dvd_dx < 0 and dvd_dy > 0) lcd.Color.RED else 
-                           if (dvd_dx > 0 and dvd_dy < 0) lcd.Color.MAGENTA else 
-                           lcd.Color.CYAN;
+            const dvd_bg = if (dvd_dx > 0 and dvd_dy > 0) lcd.Color.BLUE else if (dvd_dx < 0 and dvd_dy > 0) lcd.Color.RED else if (dvd_dx > 0 and dvd_dy < 0) lcd.Color.MAGENTA else lcd.Color.CYAN;
 
             dirty_canvas.fillRect(rel_x, rel_y, dvd_w, dvd_h, dvd_bg);
             dirty_canvas.drawRect(rel_x, rel_y, dvd_w, dvd_h, lcd.Color.WHITE);
-            dirty_canvas.drawRect(rel_x + 2, rel_y + 2, dvd_w - 4, dvd_h - 4, lcd.Color.YELLOW);
-            dirty_canvas.showString(rel_x + 14, rel_y + 8, 16, "DVD", lcd.Color.WHITE, dvd_bg);
+            // Demonstrate new primitives
+            dirty_canvas.drawLine(rel_x, rel_y, rel_x + dvd_w - 1, rel_y + dvd_h - 1, lcd.Color.YELLOW);
+            dirty_canvas.drawCircle(rel_x + dvd_w / 2, rel_y + dvd_h / 2, dvd_h / 3, lcd.Color.GREEN);
+
+            dirty_canvas.showString(rel_x + 14, rel_y + 8, 16, "DVD", lcd.Color.WHITE, null);
 
             // 3. DMA 将完美的复合图像推送到屏幕的脏区域
             dirty_canvas.flush();

@@ -105,15 +105,20 @@ pub fn fill(xsta: u16, ysta: u16, xend: u16, yend: u16, color: u16) void {
         const chunk_size: u16 = if (remaining > 65535) 65535 else @intCast(remaining);
 
         hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
+        while ((hal.DMA1_Channel5.*.CFGR & 1) != 0) {}
+        hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
+        const dma_done = dmaTcCount();
 
         // For filling, we do NOT increment memory. We read the same color variable repeatedly.
         hal.DMA1_Channel5.*.CFGR &= ~hal.DMA_MemoryInc_Enable; // Clear MINC bit
         hal.DMA1_Channel5.*.MADDR = @intFromPtr(&color);
         hal.DMA1_Channel5.*.CNTR = chunk_size;
+
+        hal.SPI_I2S_DMACmd(hal.SPI2, hal.SPI_I2S_DMAReq_Tx, hal.ENABLE);
+
         hal.DMA_Cmd(hal.DMA1_Channel5, hal.ENABLE);
 
-        while (hal.DMA_GetFlagStatus(hal.DMA1_FLAG_TC5) == hal.RESET) {}
-        hal.DMA_ClearFlag(hal.DMA1_FLAG_TC5);
+        waitDmaTc(dma_done);
 
         remaining -= chunk_size;
     }
@@ -146,13 +151,17 @@ pub fn writePixels(pixels: [*]const u16, count: u32) void {
         const chunk_size: u16 = if (remaining > 65535) 65535 else @intCast(remaining);
 
         hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
+        while ((hal.DMA1_Channel5.*.CFGR & 1) != 0) {}
+        hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
+        const dma_done = dmaTcCount();
         hal.DMA1_Channel5.*.MADDR = @intFromPtr(current_ptr);
         hal.DMA1_Channel5.*.CNTR = chunk_size;
+
+        hal.SPI_I2S_DMACmd(hal.SPI2, hal.SPI_I2S_DMAReq_Tx, hal.ENABLE);
+
         hal.DMA_Cmd(hal.DMA1_Channel5, hal.ENABLE);
 
-        // Wait for DMA completion
-        while (hal.DMA_GetFlagStatus(hal.DMA1_FLAG_TC5) == hal.RESET) {}
-        hal.DMA_ClearFlag(hal.DMA1_FLAG_TC5);
+        waitDmaTc(dma_done);
 
         remaining -= chunk_size;
         current_ptr += chunk_size;
@@ -464,6 +473,27 @@ fn initGpio() void {
     hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
 }
 
+pub var dma_tc_flag: i32 = 0;
+
+fn dmaTcCount() i32 {
+    return @as(*volatile i32, &dma_tc_flag).*;
+}
+
+fn waitDmaTc(prev_count: i32) void {
+    while (dmaTcCount() == prev_count) {}
+}
+
+fn dma1Channel5IRQHandler() callconv(.c) void {
+    if (hal.DMA_GetITStatus(hal.DMA1_IT_TC5) != hal.RESET) {
+        hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
+        @as(*volatile i32, &dma_tc_flag).* += 1;
+    }
+}
+
+comptime {
+    @export(&dma1Channel5IRQHandler, .{ .name = "DMA1_Channel5_IRQHandler", .linkage = .strong });
+}
+
 fn initDma() void {
     hal.RCC_AHBPeriphClockCmd(hal.RCC_AHBPeriph_DMA1, hal.ENABLE);
 
@@ -482,6 +512,17 @@ fn initDma() void {
     dma.DMA_M2M = hal.DMA_M2M_Disable;
 
     hal.DMA_Init(hal.DMA1_Channel5, &dma);
+
+    // Enable DMA1 Channel5 Transfer Complete interrupt
+    hal.DMA_ITConfig(hal.DMA1_Channel5, hal.DMA_IT_TC, hal.ENABLE);
+
+    var nvic: hal.NVIC_InitTypeDef = undefined;
+    nvic.NVIC_IRQChannel = hal.DMA1_Channel5_IRQn;
+    nvic.NVIC_IRQChannelPreemptionPriority = 1;
+    nvic.NVIC_IRQChannelSubPriority = 0;
+    nvic.NVIC_IRQChannelCmd = hal.ENABLE;
+    hal.NVIC_Init(&nvic);
+
     hal.SPI_I2S_DMACmd(hal.SPI2, hal.SPI_I2S_DMAReq_Tx, hal.ENABLE);
 }
 

@@ -31,16 +31,22 @@ pub const Canvas = struct {
     w: u16,
     h: u16,
     buf: []u16,
+    dirty_min_y: i32,
+    dirty_max_y: i32,
 
     pub fn init(x: u16, y: u16, w: u16, h: u16, buf: []u16) Canvas {
-        return .{ .x = x, .y = y, .w = w, .h = h, .buf = buf };
+        var canvas = Canvas{ .x = x, .y = y, .w = w, .h = h, .buf = buf, .dirty_min_y = h, .dirty_max_y = -1 };
+        canvas.resetDirty();
+        return canvas;
     }
 
     /// Dynamically allocates a memory buffer for the Canvas using the provided allocator.
     pub fn create(allocator: std.mem.Allocator, x: u16, y: u16, w: u16, h: u16) !Canvas {
         const size: usize = @as(usize, w) * @as(usize, h);
         const buf = try allocator.alloc(u16, size);
-        return Canvas{ .x = x, .y = y, .w = w, .h = h, .buf = buf };
+        var canvas = Canvas{ .x = x, .y = y, .w = w, .h = h, .buf = buf, .dirty_min_y = h, .dirty_max_y = -1 };
+        canvas.resetDirty();
+        return canvas;
     }
 
     /// Frees the dynamically allocated memory buffer.
@@ -48,13 +54,80 @@ pub const Canvas = struct {
         allocator.free(self.buf);
     }
 
+    pub fn resetDirty(self: *Canvas) void {
+        self.dirty_min_y = self.h;
+        self.dirty_max_y = -1;
+    }
+
     pub fn clear(self: *Canvas, color: u16) void {
         for (self.buf) |*p| p.* = color;
+        self.dirty_min_y = 0;
+        self.dirty_max_y = self.h - 1;
     }
 
     pub fn drawPoint(self: *Canvas, cx: i32, cy: i32, color: u16) void {
         if (cx >= 0 and cx < self.w and cy >= 0 and cy < self.h) {
             self.buf[@as(usize, @intCast(cy)) * @as(usize, self.w) + @as(usize, @intCast(cx))] = color;
+            if (cy < self.dirty_min_y) self.dirty_min_y = cy;
+            if (cy > self.dirty_max_y) self.dirty_max_y = cy;
+        }
+    }
+
+    pub fn drawLine(self: *Canvas, x1: i32, y1: i32, x2: i32, y2: i32, color: u16) void {
+        var dx: i32 = x2 - x1;
+        var dy: i32 = y2 - y1;
+        var row: i32 = x1;
+        var col: i32 = y1;
+
+        const incx: i32 = if (dx > 0) 1 else if (dx == 0) 0 else blk: {
+            dx = -dx;
+            break :blk -1;
+        };
+        const incy: i32 = if (dy > 0) 1 else if (dy == 0) 0 else blk: {
+            dy = -dy;
+            break :blk -1;
+        };
+        const distance = @max(dx, dy);
+
+        var xerr: i32 = 0;
+        var yerr: i32 = 0;
+        for (0..@intCast(distance + 1)) |_| {
+            self.drawPoint(row, col, color);
+            xerr += dx;
+            yerr += dy;
+            if (xerr > distance) {
+                xerr -= distance;
+                row += incx;
+            }
+            if (yerr > distance) {
+                yerr -= distance;
+                col += incy;
+            }
+        }
+    }
+
+    pub fn drawCircle(self: *Canvas, x0: i32, y0: i32, r: i32, color: u16) void {
+        var a: i32 = 0;
+        var b: i32 = r;
+        var di: i32 = 3 - r * 2;
+
+        while (a <= b) {
+            self.drawPoint(x0 + a, y0 - b, color);
+            self.drawPoint(x0 + b, y0 - a, color);
+            self.drawPoint(x0 + b, y0 + a, color);
+            self.drawPoint(x0 + a, y0 + b, color);
+            self.drawPoint(x0 - a, y0 + b, color);
+            self.drawPoint(x0 - b, y0 + a, color);
+            self.drawPoint(x0 - b, y0 - a, color);
+            self.drawPoint(x0 - a, y0 - b, color);
+
+            a += 1;
+            if (di < 0) {
+                di += 4 * a + 6;
+            } else {
+                di += 10 + 4 * (a - b);
+                b -= 1;
+            }
         }
     }
 
@@ -101,21 +174,21 @@ pub const Canvas = struct {
                 const ucol: u16 = @intCast(col);
                 const lit = switch (size) {
                     12 => blk: {
-                        const val = (@as(u16, font.asc2_1206[idx][ucol*2]) << 8) | @as(u16, font.asc2_1206[idx][ucol*2+1]);
+                        const val = (@as(u16, font.asc2_1206[idx][ucol * 2]) << 8) | @as(u16, font.asc2_1206[idx][ucol * 2 + 1]);
                         const bit_pos: u4 = @intCast(15 - urow);
                         break :blk ((val >> bit_pos) & 1) != 0;
                     },
                     16 => blk: {
-                        const val = (@as(u16, font.asc2_1608[idx][ucol*2]) << 8) | @as(u16, font.asc2_1608[idx][ucol*2+1]);
+                        const val = (@as(u16, font.asc2_1608[idx][ucol * 2]) << 8) | @as(u16, font.asc2_1608[idx][ucol * 2 + 1]);
                         const bit_pos: u4 = @intCast(15 - urow);
                         break :blk ((val >> bit_pos) & 1) != 0;
                     },
                     24 => blk: {
-                         const val = (@as(u32, font.asc2_2412[idx][ucol*3]) << 16) | 
-                                     (@as(u32, font.asc2_2412[idx][ucol*3+1]) << 8) | 
-                                     @as(u32, font.asc2_2412[idx][ucol*3+2]);
-                         const bit_pos: u5 = @intCast(23 - urow);
-                         break :blk ((val >> bit_pos) & 1) != 0;
+                        const val = (@as(u32, font.asc2_2412[idx][ucol * 3]) << 16) |
+                            (@as(u32, font.asc2_2412[idx][ucol * 3 + 1]) << 8) |
+                            @as(u32, font.asc2_2412[idx][ucol * 3 + 2]);
+                        const bit_pos: u5 = @intCast(23 - urow);
+                        break :blk ((val >> bit_pos) & 1) != 0;
                     },
                     else => false,
                 };
@@ -155,7 +228,17 @@ pub const Canvas = struct {
     }
 
     /// Flushes the local RAM buffer to the LCD via hardware DMA.
+    /// Only the rows that have been modified (dirty rows) are transmitted.
     pub fn flush(self: *Canvas) void {
-        lcd.flushPixels(self.x, self.y, self.x + self.w - 1, self.y + self.h - 1, self.buf.ptr);
+        if (self.dirty_max_y < self.dirty_min_y) return; // Nothing to draw
+
+        const start_y: u16 = @intCast(self.dirty_min_y);
+        const end_y: u16 = @intCast(self.dirty_max_y);
+
+        const start_idx: usize = @as(usize, start_y) * @as(usize, self.w);
+
+        lcd.flushPixels(self.x, self.y + start_y, self.x + self.w - 1, self.y + end_y, self.buf[start_idx..].ptr);
+
+        self.resetDirty();
     }
 };

@@ -1,5 +1,6 @@
 pub const hal = @cImport({
     @cInclude("ch32v30x.h");
+    @cInclude("core_riscv.h");
 });
 
 pub const c = @cImport({
