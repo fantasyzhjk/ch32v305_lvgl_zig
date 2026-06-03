@@ -30,16 +30,23 @@ pub var back_color: u16 = Color.BLACK;
 pub var fore_color: u16 = Color.WHITE;
 
 // ── SPI helpers ──────────────────────────────────────────────────
+fn spiWaitBusIdle() void {
+    while (hal.SPI_I2S_GetFlagStatus(hal.SPI2, hal.SPI_I2S_FLAG_BSY) == hal.SET) {}
+}
 
 fn spiWaitTx() void {
     while (hal.SPI_I2S_GetFlagStatus(hal.SPI2, hal.SPI_I2S_FLAG_TXE) == hal.RESET) {}
 }
 
-fn writeBus(dat: u8) void {
-    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
+fn writeBusOnly(dat: u8) void {
     spiWaitTx();
     hal.SPI_I2S_SendData(hal.SPI2, dat);
-    c.Delay_Us(1);
+}
+
+fn writeBus(dat: u8) void {
+    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
+    writeBusOnly(dat);
+    spiWaitBusIdle();
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
 }
 
@@ -48,13 +55,21 @@ fn writeData8(dat: u8) void {
 }
 
 fn writeData16(dat: u16) void {
-    writeBus(@intCast(dat >> 8));
-    writeBus(@intCast(dat & 0xFF));
+    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
+    writeBusOnly(@intCast(dat >> 8));
+    writeBusOnly(@intCast(dat & 0xFF));
+    spiWaitBusIdle();
+    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
 }
 
 fn writeReg(dat: u8) void {
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_10, hal.Bit_RESET);
-    writeBus(dat);
+    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
+
+    writeBusOnly(dat);
+    spiWaitBusIdle();
+
+    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_10, hal.Bit_SET);
 }
 
@@ -77,21 +92,28 @@ pub fn fill(xsta: u16, ysta: u16, xend: u16, yend: u16, color: u16) void {
     addressSet(xsta, ysta, xend - 1, yend - 1);
 
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
+
+    const high_byte: u8 = @intCast(color >> 8);
+    const low_byte: u8 = @intCast(color & 0xFF);
+
     var i: u16 = ysta;
     while (i < yend) : (i += 1) {
         var j: u16 = xsta;
         while (j < xend) : (j += 1) {
             spiWaitTx();
-            hal.SPI_I2S_SendData(hal.SPI2, @intCast(color >> 8));
+            hal.SPI_I2S_SendData(hal.SPI2, high_byte);
             spiWaitTx();
-            hal.SPI_I2S_SendData(hal.SPI2, @intCast(color & 0xFF));
+            hal.SPI_I2S_SendData(hal.SPI2, low_byte);
         }
     }
+
+    spiWaitBusIdle();
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
 }
 
 pub fn writePixels(pixels: [*]const u16, count: u32) void {
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
+
     for (0..count) |i| {
         const color = pixels[i];
         spiWaitTx();
@@ -99,6 +121,8 @@ pub fn writePixels(pixels: [*]const u16, count: u32) void {
         spiWaitTx();
         hal.SPI_I2S_SendData(hal.SPI2, @intCast(color & 0xFF));
     }
+
+    spiWaitBusIdle();
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
 }
 
@@ -114,10 +138,11 @@ pub fn setBrightness(brightness: u8) void {
 
 fn writeHalfWord(color: u16) void {
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
-    spiWaitTx();
-    hal.SPI_I2S_SendData(hal.SPI2, @intCast(color >> 8));
-    spiWaitTx();
-    hal.SPI_I2S_SendData(hal.SPI2, @intCast(color & 0xFF));
+
+    writeBusOnly(@intCast(color >> 8));
+    writeBusOnly(@intCast(color & 0xFF));
+
+    spiWaitBusIdle();
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
 }
 
@@ -208,20 +233,37 @@ pub fn drawCircle(x0: u16, y0: u16, r: u8) void {
 
 // ── Text rendering ───────────────────────────────────────────────
 
-fn drawGlyphBitmap(glyph: []const u8, w: u16, h: u16) void {
-    const total_bits: usize = @as(usize, w) * @as(usize, h);
+fn drawGlyphBitmap16(glyph: []const u8, w: u16, h: u16) void {
+    for (0..h) |row| {
+        for (0..w) |col| {
+            const i = col * 2;
+            const val: u16 =
+                (@as(u16, glyph[i]) << 8) |
+                @as(u16, glyph[i + 1]);
 
-    for (0..total_bits) |i| {
-        const byte_index = i / 8;
-        const bit_index = i % 8;
-        const temp = glyph[byte_index];
+            const bit_pos: u4 = @intCast(15 - row);
+            const lit = ((val >> bit_pos) & 1) != 0;
 
-        writeHalfWord(
-            if (temp & (@as(u8, 0x80) >> @intCast(bit_index)) != 0)
-                fore_color
-            else
-                back_color,
-        );
+            writeHalfWord(if (lit) fore_color else back_color);
+        }
+    }
+}
+
+fn drawGlyphBitmap24(glyph: []const u8, w: u16, h: u16) void {
+    for (0..h) |row| {
+        for (0..w) |col| {
+            const i = col * 3;
+
+            const val: u32 =
+                (@as(u32, glyph[i]) << 16) |
+                (@as(u32, glyph[i + 1]) << 8) |
+                @as(u32, glyph[i + 2]);
+
+            const bit_pos: u5 = @intCast(23 - row);
+            const lit = ((val >> bit_pos) & 1) != 0;
+
+            writeHalfWord(if (lit) fore_color else back_color);
+        }
     }
 }
 
@@ -247,21 +289,9 @@ fn showChar(x: u16, y: u16, ch: u8, size: u32) void {
     addressSet(x, y, x2, y2);
 
     switch (size) {
-        12 => {
-            const f = font.asc2_1206;
-            const glyph = f[idx];
-            drawGlyphBitmap(glyph[0..], 6, 12);
-        },
-        16 => {
-            const f = font.asc2_1608;
-            const glyph = f[idx];
-            drawGlyphBitmap(glyph[0..], 8, 16);
-        },
-        24 => {
-            const f = font.asc2_2412;
-            const glyph = f[idx];
-            drawGlyphBitmap(glyph[0..], 12, 24);
-        },
+        12 => drawGlyphBitmap16(font.asc2_1206[idx][0..], 6, 12),
+        16 => drawGlyphBitmap16(font.asc2_1608[idx][0..], 8, 16),
+        24 => drawGlyphBitmap24(font.asc2_2412[idx][0..], 12, 24),
         else => unreachable,
     }
 }
