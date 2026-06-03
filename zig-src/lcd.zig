@@ -3,6 +3,7 @@ const ch32 = @import("ch32.zig");
 const hal = ch32.hal;
 const c = ch32.c;
 const font = @import("font.zig");
+const interrupt = @import("interrupt.zig");
 
 pub const WIDTH: u16 = 240;
 pub const HEIGHT: u16 = 240;
@@ -483,15 +484,15 @@ fn waitDmaTc(prev_count: i32) void {
     while (dmaTcCount() == prev_count) {}
 }
 
-fn dma1Channel5IRQHandler() callconv(.c) void {
-    if (hal.DMA_GetITStatus(hal.DMA1_IT_TC5) != hal.RESET) {
-        hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
-        @as(*volatile i32, &dma_tc_flag).* += 1;
-    }
-}
-
 comptime {
-    @export(&dma1Channel5IRQHandler, .{ .name = "DMA1_Channel5_IRQHandler", .linkage = .strong });
+    interrupt.exportFastIrq("DMA1_Channel5_IRQHandler", struct {
+        fn body() callconv(.c) void {
+            if (hal.DMA_GetITStatus(hal.DMA1_IT_TC5) != hal.RESET) {
+                hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
+                @as(*volatile i32, &dma_tc_flag).* += 1;
+            }
+        }
+    }.body);
 }
 
 fn initDma() void {
