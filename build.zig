@@ -1,32 +1,33 @@
 const std = @import("std");
+const deps = @import("deps/build.zig");
 
 const peripheral_sources = [_][]const u8{
-    "SRC/Peripheral/src/ch32v30x_adc.c",
-    "SRC/Peripheral/src/ch32v30x_bkp.c",
-    "SRC/Peripheral/src/ch32v30x_can.c",
-    "SRC/Peripheral/src/ch32v30x_crc.c",
-    "SRC/Peripheral/src/ch32v30x_dac.c",
-    "SRC/Peripheral/src/ch32v30x_dbgmcu.c",
-    "SRC/Peripheral/src/ch32v30x_dma.c",
-    "SRC/Peripheral/src/ch32v30x_exti.c",
-    "SRC/Peripheral/src/ch32v30x_flash.c",
-    "SRC/Peripheral/src/ch32v30x_gpio.c",
-    "SRC/Peripheral/src/ch32v30x_i2c.c",
-    "SRC/Peripheral/src/ch32v30x_iwdg.c",
-    "SRC/Peripheral/src/ch32v30x_misc.c",
-    "SRC/Peripheral/src/ch32v30x_opa.c",
-    "SRC/Peripheral/src/ch32v30x_pwr.c",
-    "SRC/Peripheral/src/ch32v30x_rcc.c",
-    "SRC/Peripheral/src/ch32v30x_rtc.c",
-    "SRC/Peripheral/src/ch32v30x_spi.c",
-    "SRC/Peripheral/src/ch32v30x_tim.c",
-    "SRC/Peripheral/src/ch32v30x_usart.c",
-    "SRC/Peripheral/src/ch32v30x_wwdg.c",
+    "hal/Peripheral/src/ch32v30x_adc.c",
+    "hal/Peripheral/src/ch32v30x_bkp.c",
+    "hal/Peripheral/src/ch32v30x_can.c",
+    "hal/Peripheral/src/ch32v30x_crc.c",
+    "hal/Peripheral/src/ch32v30x_dac.c",
+    "hal/Peripheral/src/ch32v30x_dbgmcu.c",
+    "hal/Peripheral/src/ch32v30x_dma.c",
+    "hal/Peripheral/src/ch32v30x_exti.c",
+    "hal/Peripheral/src/ch32v30x_flash.c",
+    "hal/Peripheral/src/ch32v30x_gpio.c",
+    "hal/Peripheral/src/ch32v30x_i2c.c",
+    "hal/Peripheral/src/ch32v30x_iwdg.c",
+    "hal/Peripheral/src/ch32v30x_misc.c",
+    "hal/Peripheral/src/ch32v30x_opa.c",
+    "hal/Peripheral/src/ch32v30x_pwr.c",
+    "hal/Peripheral/src/ch32v30x_rcc.c",
+    "hal/Peripheral/src/ch32v30x_rtc.c",
+    "hal/Peripheral/src/ch32v30x_spi.c",
+    "hal/Peripheral/src/ch32v30x_tim.c",
+    "hal/Peripheral/src/ch32v30x_usart.c",
+    "hal/Peripheral/src/ch32v30x_wwdg.c",
 };
 
 const c_sources = [_][]const u8{
-    "SRC/Core/core_riscv.c",
-    "SRC/Debug/debug.c",
+    "hal/Core/core_riscv.c",
+    "hal/Debug/debug.c",
     "zig-src/c/src/stdio.c",
     "zig-src/c/src/system_ch32v30x.c",
     "zig-src/c/src/ch32v30x_it.c",
@@ -56,11 +57,14 @@ pub fn build(b: *std.Build) void {
     exe.link_gc_sections = true;
     exe.setLinkerScript(b.path("zig-src/c/Link.ld"));
 
-    exe.root_module.addIncludePath(b.path("zig-src/c/inc"));
-    exe.root_module.addIncludePath(b.path("SRC/Peripheral/inc"));
-    exe.root_module.addIncludePath(b.path("SRC/Core"));
-    exe.root_module.addIncludePath(b.path("SRC/Debug"));
     exe.root_module.addCMacro("ARCH_RISCV", "1");
+
+    exe.root_module.addIncludePath(b.path("hal/Peripheral/inc"));
+    exe.root_module.addIncludePath(b.path("hal/Core"));
+    exe.root_module.addIncludePath(b.path("hal/Debug"));
+
+    exe.root_module.addIncludePath(b.path("zig-src/c/inc"));
+
     exe.root_module.addAssemblyFile(b.path("zig-src/c/startup_ch32v30x.S"));
     exe.root_module.addCSourceFiles(.{
         .root = b.path(""),
@@ -78,6 +82,12 @@ pub fn build(b: *std.Build) void {
             "-std=gnu99",
             "-Os",
         },
+    });
+
+    deps.addLvgl(b, exe);
+
+    exe.root_module.addAnonymousImport("libc", .{
+        .root_source_file = b.path("zig-src/libc.zig"),
     });
 
     const elf_install = b.addInstallBinFile(exe.getEmittedBin(), "ch32v30-blink.elf");

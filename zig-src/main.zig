@@ -1,6 +1,12 @@
 const ch32 = @import("ch32.zig");
 const hal = ch32.hal;
 const c = ch32.c;
+const lcd = ch32.lcd;
+const debug = @import("debug.zig");
+
+comptime {
+    _ = @import("libc.zig");
+}
 
 fn initLedPin() void {
     var gpio: hal.GPIO_InitTypeDef = .{
@@ -20,12 +26,29 @@ fn initLedPin() void {
 pub export fn main() noreturn {
     hal.NVIC_PriorityGroupConfig(hal.NVIC_PriorityGroup_2);
     c.Delay_Init();
+    c.USART_Printf_Init(115200);
     initLedPin();
 
+    lcd.lcd_init();
+    lcd.lv_init();
+    lcd.lv_example_img_1();
+
+    debug.print("hello from zig\r\n", .{});
+
+    var counter: u32 = 0;
     var led_on = false;
+
     while (true) {
-        led_on = !led_on;
-        hal.GPIO_WriteBit(hal.GPIOA, hal.GPIO_Pin_3, if (led_on) hal.Bit_SET else hal.Bit_RESET);
-        c.Delay_Ms(50);
+        // lcd.lv_tick_inc(1);
+        // _ = lcd.lv_task_handler();
+
+        counter += 1;
+        if (counter >= 500) {
+            counter = 0;
+            led_on = !led_on;
+            hal.GPIO_WriteBit(hal.GPIOA, hal.GPIO_Pin_3, if (led_on) hal.Bit_SET else hal.Bit_RESET);
+        }
+
+        c.Delay_Ms(1);
     }
 }

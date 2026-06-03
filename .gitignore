@@ -3,5 +3,4 @@
 .zig-global-cache/
 obj/
 zig-out/
-zig-src/lvgl/
 LCD_LVGL/

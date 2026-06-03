@@ -7,6 +7,7 @@
  *******************************************************************************/
 #include "lcd.h"
 #include "stdarg.h"
+#include "lv_conf.h"
 // #include "font.h"
 
 #define USE_HORIZONTAL 0
