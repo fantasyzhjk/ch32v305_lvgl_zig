@@ -1,7 +1,7 @@
 const ch32 = @import("ch32.zig");
 const hal = ch32.hal;
 const c = ch32.c;
-const lcd = @import("lcd.zig").lcd;
+const lcd = @import("lcd.zig");
 const debug = @import("debug.zig");
 
 fn initLedPin() void {
@@ -25,9 +25,10 @@ pub export fn main() noreturn {
     c.USART_Printf_Init(115200);
     initLedPin();
 
-    lcd.lcd_init();
+    lcd.init();
 
     debug.print("hello from zig\r\n", .{});
+    lcd.showString(10, 10, 16, "Hello from Zig LCD!");
 
     var counter: u32 = 0;
     var led_on = false;
