@@ -1,7 +1,7 @@
 const ch32 = @import("ch32.zig");
 const hal = ch32.hal;
 const c = ch32.c;
-const lcd = ch32.lcd;
+const lcd = @import("lcd.zig").lcd;
 const debug = @import("debug.zig");
 
 comptime {
@@ -31,7 +31,20 @@ pub export fn main() noreturn {
 
     lcd.lcd_init();
     lcd.lv_init();
-    lcd.lv_example_img_1();
+    lcd.lv_port_disp_init();
+
+    //lv_example_meter_2();
+
+    //lv_example_get_started_1();
+    //lv_example_get_started_2();
+    //lv_example_get_started_3();
+    //lv_example_menu_1();
+    //lv_example_led_1();
+    //lv_demo_widgets();
+
+    //lv_example_animimg_1();
+    //lv_example_colorwheel_1();
+    lcd.lv_example_calendar_1();
 
     debug.print("hello from zig\r\n", .{});
 
@@ -39,8 +52,8 @@ pub export fn main() noreturn {
     var led_on = false;
 
     while (true) {
-        // lcd.lv_tick_inc(1);
-        // _ = lcd.lv_task_handler();
+        lcd.lv_tick_inc(1);
+        _ = lcd.lv_task_handler();
 
         counter += 1;
         if (counter >= 500) {

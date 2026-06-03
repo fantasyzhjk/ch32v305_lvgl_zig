@@ -26,6 +26,7 @@ fn collectCFiles(
 pub fn addLvgl(
     b: *std.Build,
     exe: *std.Build.Step.Compile,
+    flags: []const []const u8,
     // target: std.Build.ResolvedTarget,
     // optimize: std.builtin.OptimizeMode,
 ) void {
@@ -79,25 +80,11 @@ pub fn addLvgl(
     exe.root_module.addCSourceFiles(.{
         .root = b.path("deps/lvgl/src"),
         .files = c_files.items,
-        .flags = &.{
-            "-std=c99",
-            "-Os",
-        },
+        .flags = flags,
     });
 
     exe.root_module.addCSourceFile(.{
-        .file = b.path("deps/lvgl/examples/widgets/img/lv_example_img_1.c"),
-        .flags = &.{
-            "-std=c99",
-            "-Os",
-        },
-    });
-
-    exe.root_module.addCSourceFile(.{
-        .file = b.path("deps/lvgl/examples/assets/img_cogwheel_argb.c"),
-        .flags = &.{
-            "-std=c99",
-            "-Os",
-        },
+        .file = b.path("deps/lvgl/examples/widgets/calendar/lv_example_calendar_1.c"),
+        .flags = flags,
     });
 }

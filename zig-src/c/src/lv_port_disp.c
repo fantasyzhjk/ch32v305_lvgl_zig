@@ -9,8 +9,8 @@
 /*********************
  *      INCLUDES
  *********************/
-#include "lv_port_disp.h"
-#include "../../lvgl.h"
+#include "porting/lv_port_disp.h"
+#include "lvgl.h"
 
 /*********************
  *      DEFINES

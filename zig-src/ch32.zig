@@ -7,8 +7,3 @@ pub const c = @cImport({
     @cInclude("nanoprintf.h");
     @cInclude("stdio.h");
 });
-
-pub const lcd = @cImport({
-    @cInclude("lcd.h");
-    @cInclude("lv_examples.h");
-});

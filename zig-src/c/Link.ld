@@ -122,7 +122,7 @@ SECTIONS
         PROVIDE(_edata = .);
     } >RAM AT>FLASH
 
-    .bss :
+    .bss (NOLOAD) :
     {
         . = ALIGN(4);
         PROVIDE(_sbss = .);
@@ -133,7 +133,7 @@ SECTIONS
         *(COMMON*)
         . = ALIGN(4);
         PROVIDE(_ebss = .);
-    } >RAM AT>FLASH
+    } >RAM
 
     PROVIDE(_end = _ebss);
     PROVIDE(end = .);
