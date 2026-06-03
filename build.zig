@@ -32,7 +32,6 @@ const c_sources = [_][]const u8{
     "zig-src/c/src/system_ch32v30x.c",
     "zig-src/c/src/ch32v30x_it.c",
     "zig-src/c/src/lcd.c",
-    "zig-src/c/src/lv_port_disp.c",
 };
 
 pub fn build(b: *std.Build) void {
@@ -98,7 +97,7 @@ pub fn build(b: *std.Build) void {
         .flags = c_flags,
     });
 
-    deps.addLvgl(b, exe, c_flags);
+    // deps.addLvgl(b, exe, c_flags);
 
     const elf_install = b.addInstallBinFile(
         exe.getEmittedBin(),

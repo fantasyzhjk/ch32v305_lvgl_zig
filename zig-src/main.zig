@@ -26,10 +26,6 @@ pub export fn main() noreturn {
     initLedPin();
 
     lcd.lcd_init();
-    lcd.lv_init();
-    lcd.lv_port_disp_init();
-
-    lcd.lv_example_calendar_basic();
 
     debug.print("hello from zig\r\n", .{});
 
@@ -37,9 +33,6 @@ pub export fn main() noreturn {
     var led_on = false;
 
     while (true) {
-        lcd.lv_tick_inc(1);
-        _ = lcd.lv_timer_handler();
-
         counter += 1;
         if (counter >= 500) {
             counter = 0;
