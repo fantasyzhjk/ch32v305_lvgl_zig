@@ -71,6 +71,15 @@ void lcd_show_image(u16 x, u16 y, u16 length, u16 wide, const u8 *p);
 void lcd_init(void);
 void LCD_SetBrightness(u8 brightness);
 
+void lcd_write_pixels(const uint16_t *pixels, uint32_t count);
+
+void lcd_flush_pixels(
+    uint16_t x1,
+    uint16_t y1,
+    uint16_t x2,
+    uint16_t y2,
+    const uint16_t *pixels);
+
 void lcd_enter_sleep(void);
 void lcd_exit_sleep(void);
 void lcd_display_on(void);

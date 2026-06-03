@@ -164,10 +164,8 @@ void lcd_gpio_init(void)
 
 void LCD_SetBrightness(u8 brightness)
 {
-#if 0
     if (brightness > 100) brightness = 100;
     TIM_SetCompare2( TIM1, brightness );
-#endif
 }
 
 void LCD_Fill(u16 xsta, u16 ysta, u16 xend, u16 yend, u16 color)
@@ -320,6 +318,43 @@ void lcd_set_color(u16 back, u16 fore)
     BACK_COLOR = back;
     FORE_COLOR = fore;
 }
+
+void lcd_write_pixels(const uint16_t *pixels, uint32_t count)
+{
+    LCD_CS_Clr();
+
+    for(uint32_t i = 0; i < count; i++) {
+        uint16_t color = pixels[i];
+
+        while(SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) == RESET)
+            ;
+        SPI_I2S_SendData(SPI2, color >> 8);
+
+        while(SPI_I2S_GetFlagStatus(SPI2, SPI_I2S_FLAG_TXE) == RESET)
+            ;
+        SPI_I2S_SendData(SPI2, color);
+    }
+
+    LCD_CS_Set();
+}
+
+void lcd_flush_pixels(
+    uint16_t x1,
+    uint16_t y1,
+    uint16_t x2,
+    uint16_t y2,
+    const uint16_t *pixels)
+{
+    uint32_t count =
+        (uint32_t)(x2 - x1 + 1) *
+        (uint32_t)(y2 - y1 + 1);
+
+    lcd_address_set(x1, y1, x2, y2);
+    lcd_write_pixels(pixels, count);
+}
+
+
+
 
 #if 0
 void lcd_display_on(void)
