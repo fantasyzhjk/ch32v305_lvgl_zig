@@ -4,10 +4,6 @@ const c = ch32.c;
 const lcd = @import("lcd.zig").lcd;
 const debug = @import("debug.zig");
 
-comptime {
-    _ = @import("libc.zig");
-}
-
 fn initLedPin() void {
     var gpio: hal.GPIO_InitTypeDef = .{
         .GPIO_Pin = 0,

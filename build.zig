@@ -100,10 +100,6 @@ pub fn build(b: *std.Build) void {
 
     deps.addLvgl(b, exe, c_flags);
 
-    exe.root_module.addAnonymousImport("libc", .{
-        .root_source_file = b.path("zig-src/libc.zig"),
-    });
-
     const elf_install = b.addInstallBinFile(
         exe.getEmittedBin(),
         b.fmt("{s}.elf", .{exe.name}),
