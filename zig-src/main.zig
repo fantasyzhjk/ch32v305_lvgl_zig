@@ -1,5 +1,6 @@
 const ch32 = @import("ch32.zig");
 const hal = ch32.hal;
+const c = ch32.c;
 
 fn initLedPin() void {
     var gpio: hal.GPIO_InitTypeDef = .{
@@ -18,13 +19,13 @@ fn initLedPin() void {
 
 pub export fn main() noreturn {
     hal.NVIC_PriorityGroupConfig(hal.NVIC_PriorityGroup_2);
-    ch32.Delay_Init();
+    c.Delay_Init();
     initLedPin();
 
     var led_on = false;
     while (true) {
         led_on = !led_on;
         hal.GPIO_WriteBit(hal.GPIOA, hal.GPIO_Pin_3, if (led_on) hal.Bit_SET else hal.Bit_RESET);
-        ch32.Delay_Ms(50);
+        c.Delay_Ms(50);
     }
 }

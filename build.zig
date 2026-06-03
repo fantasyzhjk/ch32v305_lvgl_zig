@@ -26,9 +26,11 @@ const peripheral_sources = [_][]const u8{
 
 const c_sources = [_][]const u8{
     "SRC/Core/core_riscv.c",
+    "SRC/Debug/debug.c",
+    "zig-src/c/src/stdio.c",
     "zig-src/c/src/system_ch32v30x.c",
     "zig-src/c/src/ch32v30x_it.c",
-    "zig-src/c/src/delay.c",
+    "zig-src/c/src/lcd.c",
 };
 
 pub fn build(b: *std.Build) void {
@@ -57,6 +59,7 @@ pub fn build(b: *std.Build) void {
     exe.root_module.addIncludePath(b.path("zig-src/c/inc"));
     exe.root_module.addIncludePath(b.path("SRC/Peripheral/inc"));
     exe.root_module.addIncludePath(b.path("SRC/Core"));
+    exe.root_module.addIncludePath(b.path("SRC/Debug"));
     exe.root_module.addCMacro("ARCH_RISCV", "1");
     exe.root_module.addAssemblyFile(b.path("zig-src/c/startup_ch32v30x.S"));
     exe.root_module.addCSourceFiles(.{
