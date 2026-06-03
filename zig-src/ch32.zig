@@ -1,8 +1,5 @@
-pub const c = @cImport({
+pub const hal = @cImport({
     @cInclude("ch32v30x.h");
-    @cInclude("ch32v30x_gpio.h");
-    @cInclude("ch32v30x_misc.h");
-    @cInclude("ch32v30x_rcc.h");
 });
 
 pub extern fn Delay_Init() void;

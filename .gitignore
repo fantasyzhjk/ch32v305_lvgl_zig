@@ -1,5 +1,6 @@
 .zig-cache/
 .zig-cli-global-cache/
+.zig-global-cache/
 obj/
 zig-out/
 LCD_LVGL/
