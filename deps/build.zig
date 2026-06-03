@@ -84,7 +84,7 @@ pub fn addLvgl(
     });
 
     exe.root_module.addCSourceFile(.{
-        .file = b.path("deps/lvgl/examples/widgets/calendar/lv_example_calendar_1.c"),
+        .file = b.path("deps/lvgl/examples/widgets/calendar/lv_example_calendar_basic.c"),
         .flags = flags,
     });
 }

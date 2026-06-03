@@ -145,4 +145,13 @@ SECTIONS
         . = . + __stack_size;
         PROVIDE(_eusrstack = .);
     } >RAM :NONE
+
+    /DISCARD/ :
+    {
+        *(.eh_frame)
+        *(.eh_frame_hdr)
+        *(.comment)
+        *(.note*)
+        *(.riscv.attributes)
+    }
 }
