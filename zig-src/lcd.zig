@@ -10,27 +10,17 @@ pub const HEIGHT: u16 = 240;
 
 const USE_HORIZONTAL: comptime_int = 0;
 
-pub const Color = struct {
-    pub const WHITE: u16 = 0xFFFF;
-    pub const BLACK: u16 = 0x0000;
-    pub const BLUE: u16 = 0x001F;
-    pub const RED: u16 = 0xF800;
-    pub const MAGENTA: u16 = 0xF81F;
-    pub const GREEN: u16 = 0x07E0;
-    pub const CYAN: u16 = 0x7FFF;
-    pub const YELLOW: u16 = 0xFFE0;
-    pub const ORANGE: u16 = 0xFD20;
-    pub const PURPLE: u16 = 0x8010;
-    pub const GRAY: u16 = 0x8430;
-    pub const LGRAY: u16 = 0xC618;
-    pub const GOLD: u16 = 0xFEA0;
-    pub const SILVER: u16 = 0xC618;
-};
+pub const Color = @import("color.zig").Color;
 
 pub var back_color: u16 = Color.BLACK;
 pub var fore_color: u16 = Color.WHITE;
 
-// ── SPI helpers ──────────────────────────────────────────────────
+// --- Interrupt State ---
+pub var dma_tc_flag: bool = true;
+pub var dma_tc_counter: u32 = 0;
+pub var dma_auto_cleanup: bool = false;
+
+// --- SPI helpers ---
 fn spiWaitBusIdle() void {
     while (hal.SPI_I2S_GetFlagStatus(hal.SPI2, hal.SPI_I2S_FLAG_BSY) == hal.SET) {}
 }
@@ -66,15 +56,13 @@ fn writeData16(dat: u16) void {
 fn writeReg(dat: u8) void {
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_10, hal.Bit_RESET);
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
-
     writeBusOnly(dat);
     spiWaitBusIdle();
-
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_10, hal.Bit_SET);
 }
 
-// ── Core operations ──────────────────────────────────────────────
+// --- Core operations ---
 
 pub fn addressSet(x1: u16, y1: u16, x2: u16, y2: u16) void {
     const x_off: u16 = if (USE_HORIZONTAL == 1 or USE_HORIZONTAL == 3) 80 else 0;
@@ -89,14 +77,20 @@ pub fn addressSet(x1: u16, y1: u16, x2: u16, y2: u16) void {
     writeReg(0x2C);
 }
 
-pub fn fill(xsta: u16, ysta: u16, xend: u16, yend: u16, color: u16) void {
-    addressSet(xsta, ysta, xend - 1, yend - 1);
+/// Wait for previous DMA transfer and IRQ cleanup to finish
+pub fn waitDmaDone() void {
+    while (!@as(*volatile bool, &dma_tc_flag).*) {}
+}
 
+pub fn fill(xsta: u16, ysta: u16, xend: u16, yend: u16, color: u16) void {
+    waitDmaDone();
+
+    addressSet(xsta, ysta, xend - 1, yend - 1);
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
 
     const count: u32 = @as(u32, xend - xsta) * @as(u32, yend - ysta);
 
-    // Switch SPI to 16-bit mode for DMA
+    // Switch to 16-bit
     hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
     hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_16b);
     hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
@@ -105,42 +99,35 @@ pub fn fill(xsta: u16, ysta: u16, xend: u16, yend: u16, color: u16) void {
     while (remaining > 0) {
         const chunk_size: u16 = if (remaining > 65535) 65535 else @intCast(remaining);
 
+        @as(*volatile bool, &dma_tc_flag).* = false;
+        // Last chunk should trigger auto-cleanup in IRQ
+        @as(*volatile bool, &dma_auto_cleanup).* = (remaining <= chunk_size);
+
         hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
         while ((hal.DMA1_Channel5.*.CFGR & 1) != 0) {}
         hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
-        const dma_done = dmaTcCount();
 
-        // For filling, we do NOT increment memory. We read the same color variable repeatedly.
-        hal.DMA1_Channel5.*.CFGR &= ~hal.DMA_MemoryInc_Enable; // Clear MINC bit
+        hal.DMA1_Channel5.*.CFGR &= ~hal.DMA_MemoryInc_Enable;
         hal.DMA1_Channel5.*.MADDR = @intFromPtr(&color);
         hal.DMA1_Channel5.*.CNTR = chunk_size;
 
-        hal.SPI_I2S_DMACmd(hal.SPI2, hal.SPI_I2S_DMAReq_Tx, hal.ENABLE);
-
         hal.DMA_Cmd(hal.DMA1_Channel5, hal.ENABLE);
 
-        waitDmaTc(dma_done);
-
         remaining -= chunk_size;
+        // fill always waits to be simple
+        waitDmaDone();
     }
 
-    // Restore DMA setting for future writePixels calls
+    // Restore DMA for next writePixels (auto-cleanup doesn't know about MINC)
     hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
     hal.DMA1_Channel5.*.CFGR |= hal.DMA_MemoryInc_Enable;
-
-    spiWaitBusIdle();
-
-    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
-    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_8b);
-    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
-
-    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
 }
 
 pub fn writePixels(pixels: [*]const u16, count: u32) void {
+    waitDmaDone();
+
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
 
-    // Switch SPI to 16-bit mode for DMA
     hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
     hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_16b);
     hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
@@ -151,279 +138,64 @@ pub fn writePixels(pixels: [*]const u16, count: u32) void {
     while (remaining > 0) {
         const chunk_size: u16 = if (remaining > 65535) 65535 else @intCast(remaining);
 
+        @as(*volatile bool, &dma_tc_flag).* = false;
+        @as(*volatile bool, &dma_auto_cleanup).* = (remaining <= chunk_size);
+
         hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
         while ((hal.DMA1_Channel5.*.CFGR & 1) != 0) {}
         hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
-        const dma_done = dmaTcCount();
+
         hal.DMA1_Channel5.*.MADDR = @intFromPtr(current_ptr);
         hal.DMA1_Channel5.*.CNTR = chunk_size;
 
-        hal.SPI_I2S_DMACmd(hal.SPI2, hal.SPI_I2S_DMAReq_Tx, hal.ENABLE);
-
         hal.DMA_Cmd(hal.DMA1_Channel5, hal.ENABLE);
-
-        waitDmaTc(dma_done);
 
         remaining -= chunk_size;
         current_ptr += chunk_size;
+
+        if (remaining > 0) {
+            waitDmaDone();
+        }
     }
-
-    // Wait for SPI bus to become completely idle before ending
-    spiWaitBusIdle();
-
-    // Revert SPI to 8-bit mode
-    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
-    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_8b);
-    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
-
-    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
 }
 
 pub fn flushPixels(x1: u16, y1: u16, x2: u16, y2: u16, pixels: [*]const u16) void {
     const count: u32 = @as(u32, x2 - x1 + 1) * @as(u32, y2 - y1 + 1);
+    waitDmaDone();
     addressSet(x1, y1, x2, y2);
     writePixels(pixels, count);
 }
 
-pub fn setBrightness(brightness: u8) void {
-    hal.TIM_SetCompare2(hal.TIM1, @min(brightness, 100));
-}
+// --- Interrupt Handling ---
 
-fn writeHalfWord(color: u16) void {
-    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
+comptime {
+    interrupt.exportFastIrq("DMA1_Channel5_IRQHandler", struct {
+        fn impl() callconv(.c) void {
+            if (hal.DMA_GetITStatus(hal.DMA1_IT_TC5) != hal.RESET) {
+                hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
 
-    writeBusOnly(@intCast(color >> 8));
-    writeBusOnly(@intCast(color & 0xFF));
+                if (@as(*volatile bool, &dma_auto_cleanup).*) {
+                    // Wait for SPI to finish shifting the last word
+                    while (hal.SPI_I2S_GetFlagStatus(hal.SPI2, hal.SPI_I2S_FLAG_BSY) == hal.SET) {}
+                    // Set CS High
+                    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
 
-    spiWaitBusIdle();
-    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
-}
+                    // Restore 8-bit mode transparently
+                    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
+                    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_8b);
+                    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
 
-// ── Drawing primitives ───────────────────────────────────────────
+                    @as(*volatile bool, &dma_auto_cleanup).* = false;
+                }
 
-pub fn drawPoint(x: u16, y: u16) void {
-    addressSet(x, y, x, y);
-    writeData16(fore_color);
-}
-
-pub fn drawPointColor(x: u16, y: u16, color: u16) void {
-    addressSet(x, y, x, y);
-    writeData16(color);
-}
-
-pub fn drawLine(x1: u16, y1: u16, x2: u16, y2: u16) void {
-    if (y1 == y2) {
-        addressSet(x1, y1, x2, y2);
-        var i: u16 = x1;
-        while (i <= x2) : (i += 1) {
-            writeHalfWord(fore_color);
+                @as(*volatile bool, &dma_tc_flag).* = true;
+                @as(*volatile u32, &dma_tc_counter).* +%= 1;
+            }
         }
-        return;
-    }
-
-    var dx: i32 = @as(i32, x2) - @as(i32, x1);
-    var dy: i32 = @as(i32, y2) - @as(i32, y1);
-    var row: i32 = x1;
-    var col: i32 = y1;
-
-    const incx: i32 = if (dx > 0) 1 else if (dx == 0) 0 else blk: {
-        dx = -dx;
-        break :blk -1;
-    };
-    const incy: i32 = if (dy > 0) 1 else if (dy == 0) 0 else blk: {
-        dy = -dy;
-        break :blk -1;
-    };
-    const distance = @max(dx, dy);
-
-    var xerr: i32 = 0;
-    var yerr: i32 = 0;
-    for (0..@intCast(distance + 1)) |_| {
-        drawPoint(@intCast(row), @intCast(col));
-        xerr += dx;
-        yerr += dy;
-        if (xerr > distance) {
-            xerr -= distance;
-            row += incx;
-        }
-        if (yerr > distance) {
-            yerr -= distance;
-            col += incy;
-        }
-    }
+    }.impl);
 }
 
-pub fn drawRectangle(x1: u16, y1: u16, x2: u16, y2: u16) void {
-    drawLine(x1, y1, x2, y1);
-    drawLine(x1, y1, x1, y2);
-    drawLine(x1, y2, x2, y2);
-    drawLine(x2, y1, x2, y2);
-}
-
-pub fn drawCircle(x0: u16, y0: u16, r: u8) void {
-    var a: i32 = 0;
-    var b: i32 = r;
-    var di: i32 = 3 - @as(i32, r) * 2;
-
-    while (a <= b) {
-        inline for (&[_][2]i32{
-            .{ -b, -a }, .{ b, -a }, .{ -a, b }, .{ -b, -a },
-            .{ -a, -b }, .{ b, a },  .{ a, -b }, .{ a, b },
-            .{ -b, a },
-        }) |offset| {
-            drawPoint(@intCast(@as(i32, x0) + offset[0]), @intCast(@as(i32, y0) + offset[1]));
-        }
-        a += 1;
-        if (di < 0) {
-            di += 4 * a + 6;
-        } else {
-            di += 10 + 4 * (a - b);
-            b -= 1;
-        }
-        drawPoint(@intCast(@as(i32, x0) + a), @intCast(@as(i32, y0) + b));
-    }
-}
-
-// ── Text rendering ───────────────────────────────────────────────
-
-fn drawGlyphBitmap16(glyph: []const u8, w: u16, h: u16) void {
-    for (0..h) |row| {
-        for (0..w) |col| {
-            const i = col * 2;
-            const val: u16 =
-                (@as(u16, glyph[i]) << 8) |
-                @as(u16, glyph[i + 1]);
-
-            const bit_pos: u4 = @intCast(15 - row);
-            const lit = ((val >> bit_pos) & 1) != 0;
-
-            writeHalfWord(if (lit) fore_color else back_color);
-        }
-    }
-}
-
-fn drawGlyphBitmap24(glyph: []const u8, w: u16, h: u16) void {
-    for (0..h) |row| {
-        for (0..w) |col| {
-            const i = col * 3;
-
-            const val: u32 =
-                (@as(u32, glyph[i]) << 16) |
-                (@as(u32, glyph[i + 1]) << 8) |
-                @as(u32, glyph[i + 2]);
-
-            const bit_pos: u5 = @intCast(23 - row);
-            const lit = ((val >> bit_pos) & 1) != 0;
-
-            writeHalfWord(if (lit) fore_color else back_color);
-        }
-    }
-}
-
-fn showChar(x: u16, y: u16, ch: u8, size: u32) void {
-    if (ch < 0x20 or ch > 0x7e) return;
-
-    const w: u16 = switch (size) {
-        12 => 6,
-        16 => 8,
-        24 => 12,
-        else => return,
-    };
-
-    const h: u16 = @intCast(size);
-
-    if (x > WIDTH - w or y > HEIGHT - h) return;
-
-    const idx: usize = @as(usize, ch - 0x20);
-
-    const x2 = x + w - 1;
-    const y2 = y + h - 1;
-
-    addressSet(x, y, x2, y2);
-
-    switch (size) {
-        12 => drawGlyphBitmap16(font.asc2_1206[idx][0..], 6, 12),
-        16 => drawGlyphBitmap16(font.asc2_1608[idx][0..], 8, 16),
-        24 => drawGlyphBitmap24(font.asc2_2412[idx][0..], 12, 24),
-        else => unreachable,
-    }
-}
-
-pub fn showNum(x: u16, y: u16, num: u32, len: u8, size: u32) void {
-    _ = len;
-    var buf: [32]u8 = undefined;
-    const s = std.fmt.bufPrint(&buf, "{d}", .{num}) catch return;
-    showString(x, y, size, s);
-}
-
-pub fn showString(x: u16, y: u16, size: u32, str: []const u8) void {
-    const w: u16 = switch (size) {
-        12 => 6,
-        16 => 8,
-        24 => 12,
-        else => return,
-    };
-
-    const h: u16 = @intCast(size);
-
-    var cx = x;
-    var cy = y;
-
-    for (str) |ch| {
-        if (ch == '\n') {
-            cx = x;
-            cy += h;
-            continue;
-        }
-
-        if (cx > WIDTH - w) {
-            cx = x;
-            cy += h;
-        }
-
-        if (cy > HEIGHT - h) {
-            cx = x;
-            cy = y;
-            fill(0, 0, WIDTH - 1, HEIGHT - 1, Color.RED);
-        }
-
-        showChar(cx, cy, ch, size);
-        cx += w;
-    }
-}
-
-pub fn showImage(x: u16, y: u16, length: u16, wide: u16, data: [*]const u8) void {
-    if (x + length > WIDTH or y + wide > HEIGHT) return;
-    addressSet(x, y, x + length - 1, y + wide - 1);
-    for (0..@as(u32, length) * @as(u32, wide) * 2) |i| {
-        writeBus(data[i]);
-    }
-}
-
-// ── Display control ──────────────────────────────────────────────
-
-pub fn displayOn() void {
-    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_14, hal.Bit_SET);
-}
-
-pub fn displayOff() void {
-    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_14, hal.Bit_RESET);
-}
-
-pub fn enterSleep() void {
-    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_14, hal.Bit_RESET);
-    c.Delay_Ms(5);
-    writeReg(0x10);
-}
-
-pub fn exitSleep() void {
-    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_14, hal.Bit_SET);
-    c.Delay_Ms(5);
-    writeReg(0x11);
-    c.Delay_Ms(120);
-}
-
-// ── Hardware init ────────────────────────────────────────────────
+// --- Hardware init ---
 
 fn initGpio() void {
     var gpio: hal.GPIO_InitTypeDef = .{ .GPIO_Pin = 0, .GPIO_Speed = 0, .GPIO_Mode = 0 };
@@ -474,27 +246,6 @@ fn initGpio() void {
     hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
 }
 
-pub var dma_tc_flag: i32 = 0;
-
-fn dmaTcCount() i32 {
-    return @as(*volatile i32, &dma_tc_flag).*;
-}
-
-fn waitDmaTc(prev_count: i32) void {
-    while (dmaTcCount() == prev_count) {}
-}
-
-comptime {
-    interrupt.exportFastIrq("DMA1_Channel5_IRQHandler", struct {
-        fn impl() callconv(.c) void {
-            if (hal.DMA_GetITStatus(hal.DMA1_IT_TC5) != hal.RESET) {
-                hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
-                @as(*volatile i32, &dma_tc_flag).* +%= 1;
-            }
-        }
-    }.impl);
-}
-
 fn initDma() void {
     hal.RCC_AHBPeriphClockCmd(hal.RCC_AHBPeriph_DMA1, hal.ENABLE);
 
@@ -513,8 +264,6 @@ fn initDma() void {
     dma.DMA_M2M = hal.DMA_M2M_Disable;
 
     hal.DMA_Init(hal.DMA1_Channel5, &dma);
-
-    // Enable DMA1 Channel5 Transfer Complete interrupt
     hal.DMA_ITConfig(hal.DMA1_Channel5, hal.DMA_IT_TC, hal.ENABLE);
 
     var nvic: hal.NVIC_InitTypeDef = undefined;
@@ -525,6 +274,8 @@ fn initDma() void {
     hal.NVIC_Init(&nvic);
 
     hal.SPI_I2S_DMACmd(hal.SPI2, hal.SPI_I2S_DMAReq_Tx, hal.ENABLE);
+
+    dma_tc_flag = true;
 }
 
 pub fn init() void {
@@ -570,87 +321,4 @@ pub fn init() void {
             writeData8(d);
         }
     }
-}
-
-// ── C-compatible exports ─────────────────────────────────────────
-
-pub export fn lcd_init() void {
-    init();
-}
-
-pub export fn LCD_SetBrightness(brightness: u8) void {
-    setBrightness(brightness);
-}
-
-pub export fn lcd_flush_pixels(x1: u16, y1: u16, x2: u16, y2: u16, pixels: [*]const u16) void {
-    flushPixels(x1, y1, x2, y2, pixels);
-}
-
-pub export fn lcd_write_pixels(pixels: [*]const u16, count: u32) void {
-    writePixels(pixels, count);
-}
-
-pub export fn lcd_address_set(x1: u16, y1: u16, x2: u16, y2: u16) void {
-    addressSet(x1, y1, x2, y2);
-}
-
-pub export fn lcd_set_color(back: u16, fore: u16) void {
-    back_color = back;
-    fore_color = fore;
-}
-
-pub export fn lcd_clear(color: u16) void {
-    fill(0, 0, WIDTH, HEIGHT, color);
-}
-
-pub export fn lcd_draw_point(x: u16, y: u16) void {
-    drawPoint(x, y);
-}
-
-pub export fn lcd_draw_point_color(x: u16, y: u16, color: u16) void {
-    drawPointColor(x, y, color);
-}
-
-pub export fn lcd_draw_line(x1: u16, y1: u16, x2: u16, y2: u16) void {
-    drawLine(x1, y1, x2, y2);
-}
-
-pub export fn lcd_draw_rectangle(x1: u16, y1: u16, x2: u16, y2: u16) void {
-    drawRectangle(x1, y1, x2, y2);
-}
-
-pub export fn lcd_draw_circle(x0: u16, y0: u16, r: u8) void {
-    drawCircle(x0, y0, r);
-}
-
-pub export fn lcd_fill(xsta: u16, ysta: u16, xend: u16, yend: u16, color: u16) void {
-    fill(xsta, ysta, xend, yend, color);
-}
-
-pub export fn lcd_show_num(x: u16, y: u16, num: u32, len: u8, size: u32) void {
-    showNum(x, y, num, len, size);
-}
-
-pub export fn lcd_show_string(x: u16, y: u16, size: u32, str: [*:0]const u8) void {
-    showString(x, y, size, std.mem.sliceTo(str, 0));
-}
-
-pub export fn lcd_show_image(x: u16, y: u16, length: u16, wide: u16, data: [*]const u8) void {
-    showImage(x, y, length, wide, data);
-}
-
-pub export fn lcd_display_on() void {
-    displayOn();
-}
-
-pub export fn lcd_display_off() void {
-    displayOff();
-}
-
-pub export fn lcd_enter_sleep() void {
-    enterSleep();
-}
-
-pub export fn lcd_exit_sleep() void {
-    exitSleep();
 }

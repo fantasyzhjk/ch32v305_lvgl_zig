@@ -8,6 +8,8 @@ const ui = @import("ui.zig");
 const interrupt = @import("interrupt.zig");
 const usb = @import("usb.zig");
 const tick = @import("tick.zig");
+const color_mod = @import("color.zig");
+const Color = color_mod.Color;
 
 fn initLedPin() void {
     var gpio: hal.GPIO_InitTypeDef = .{
@@ -24,8 +26,40 @@ fn initLedPin() void {
     hal.GPIO_Init(hal.GPIOA, &gpio);
 }
 
-// 裸机环境堆内存配置 (20KB SRAM)
-var heap_memory: [20 * 1024]u8 = undefined;
+// Global memory pool for ALL UI objects (Display, DrawBuf, Nodes)
+// Increased pool size to accommodate the draw buffer (~12KB) + nodes
+var ui_pool: [16 * 1024]u8 = undefined;
+var fba = std.heap.FixedBufferAllocator.init(&ui_pool);
+
+// DVD State
+var dvd_dx: i32 = 3;
+var dvd_dy: i32 = 2;
+var dvd_color: Color = Color.BLUE;
+
+// Title State
+var title_x: i32 = 240;
+
+fn drawTitle(node: *ui.Node, canvas: *ui.Canvas) void {
+    const abs = node.getAbsArea();
+    canvas.fillRect(abs.x, abs.y, abs.w, abs.h, Color.WHITE);
+
+    var buf: [64]u8 = undefined;
+    const s = std.fmt.bufPrint(&buf, "Zig Tree UI & DVD Demo @ {}", .{@as(*volatile u32, &lcd.dma_tc_counter).*}) catch "Zig Tree UI & DVD Demo";
+    canvas.showString(abs.x + title_x, abs.y + 2, 16, s, Color.BLACK, Color.WHITE);
+}
+
+fn drawDvd(node: *ui.Node, canvas: *ui.Canvas) void {
+    const abs = node.getAbsArea();
+
+    canvas.fillRect(abs.x, abs.y, abs.w, abs.h, dvd_color);
+    canvas.drawRect(abs.x, abs.y, abs.w, abs.h, Color.WHITE);
+
+    // Some decorations
+    canvas.drawLine(abs.x, abs.y, abs.x + abs.w - 1, abs.y + abs.h - 1, Color.YELLOW);
+    canvas.drawCircle(abs.x + @divTrunc(abs.w, 2), abs.y + @divTrunc(abs.h, 2), @divTrunc(abs.h, 3), Color.GREEN);
+
+    canvas.showString(abs.x + 14, abs.y + 8, 16, "DVD", Color.WHITE, null);
+}
 
 pub export fn main() noreturn {
     hal.NVIC_PriorityGroupConfig(hal.NVIC_PriorityGroup_2);
@@ -39,33 +73,25 @@ pub export fn main() noreturn {
         debug.print("USB init failed: {}\r\n", .{err});
     };
 
-    debug.print("hello from zig DVD animation\r\n", .{});
+    debug.print("hello from zig DVD tree-ui animation\r\n", .{});
 
-    // 初始化动态内存分配器
-    var fba = std.heap.FixedBufferAllocator.init(&heap_memory);
     const allocator = fba.allocator();
 
-    // 背景清屏
-    lcd.fill(0, 0, lcd.WIDTH, lcd.HEIGHT, lcd.Color.BLACK);
+    // Initialize UI Display with dynamic draw_buf (24 lines height)
+    var display = ui.Display.init(allocator, 24) catch unreachable;
+    display.bind();
 
-    // DVD 动画状态变量
-    var old_x: i32 = 40;
-    var old_y: i32 = 50;
-    var new_x: i32 = 40;
-    var new_y: i32 = 50;
-    var dvd_dx: i32 = 3;
-    var dvd_dy: i32 = 2;
-    const dvd_w: u16 = 60;
-    const dvd_h: u16 = 30;
+    // Allocate and Add Nodes using new API
+    var title_node = display.createNode(0, 0, 240, 20, drawTitle) catch unreachable;
+    var dvd_node = display.createNode(40, 50, 60, 30, drawDvd) catch unreachable;
 
-    // 标题滚动状态变量
-    var title_x: i32 = 240; // 从最右侧出现
+    display.screenAddChild(title_node);
+    display.screenAddChild(dvd_node);
 
-    // DVD 运动区域边界
-    const min_y: i32 = 20;
+    // Initial clear
+    lcd.fill(0, 0, lcd.WIDTH, lcd.HEIGHT, Color.BLACK.toRgb565());
 
     var led_on = false;
-
     var last_frame: u32 = 0;
 
     while (true) {
@@ -74,92 +100,50 @@ pub export fn main() noreturn {
         const now = tick.millis();
         if (now -% last_frame >= 16) {
             last_frame = now;
-            // --- 1. 更新顶部滚动标题 ---
+
+            // Update Title
             title_x -= 2;
-            if (title_x < -200) {
-                title_x = 240; // 滚动到底重置
-            }
+            if (title_x < -300) title_x = 240;
+            title_node.invalidate();
 
-            if (ui.Canvas.create(allocator, 0, 0, 240, 20)) |canvas_val| {
-                var title_canvas = canvas_val;
-                defer title_canvas.destroy(allocator);
+            // Update DVD
+            var new_x = dvd_node.area.x + dvd_dx;
+            var new_y = dvd_node.area.y + dvd_dy;
 
-                title_canvas.clear(lcd.Color.WHITE);
-                const s = std.fmt.allocPrint(allocator, "Zig Zoned UI & DVD Demo @ {}", .{@as(*volatile i32, &lcd.dma_tc_flag).*}) catch "Zig Zoned UI & DVD Demo";
-                defer allocator.free(s);
-                title_canvas.showString(title_x, 2, 16, s, lcd.Color.BLACK, lcd.Color.WHITE);
-                title_canvas.flush();
-            } else |_| {
-                debug.print("OOM: Failed to alloc title canvas\r\n", .{});
-            }
+            const min_y = title_node.area.h;
+            var hit = false;
 
-            // --- 2. 更新 DVD 动画 ---
-            new_x = old_x + dvd_dx;
-            new_y = old_y + dvd_dy;
-
-            // 边缘碰撞检测并反弹
             if (new_x <= 0) {
                 new_x = 0;
                 dvd_dx = -dvd_dx;
-                led_on = !led_on;
-                debug.print("Hit left edge\r\n", .{});
-            } else if (new_x + dvd_w >= lcd.WIDTH) {
-                new_x = lcd.WIDTH - dvd_w;
+                hit = true;
+            } else if (new_x + dvd_node.area.w >= lcd.WIDTH) {
+                new_x = lcd.WIDTH - dvd_node.area.w;
                 dvd_dx = -dvd_dx;
-                led_on = !led_on;
-                debug.print("Hit right edge\r\n", .{});
+                hit = true;
             }
 
             if (new_y <= min_y) {
                 new_y = min_y;
                 dvd_dy = -dvd_dy;
-                led_on = !led_on;
-                debug.print("Hit top edge\r\n", .{});
-            } else if (new_y + dvd_h >= lcd.HEIGHT) {
-                new_y = lcd.HEIGHT - dvd_h;
+                hit = true;
+            } else if (new_y + dvd_node.area.h >= lcd.HEIGHT) {
+                new_y = lcd.HEIGHT - dvd_node.area.h;
                 dvd_dy = -dvd_dy;
+                hit = true;
+            }
+
+            if (hit) {
                 led_on = !led_on;
-                debug.print("Hit bottom edge\r\n", .{});
+                hal.GPIO_WriteBit(hal.GPIOA, hal.GPIO_Pin_3, if (led_on) hal.Bit_SET else hal.Bit_RESET);
+
+                dvd_color = if (dvd_dx > 0 and dvd_dy > 0) Color.BLUE else if (dvd_dx < 0 and dvd_dy > 0) Color.RED else if (dvd_dx > 0 and dvd_dy < 0) Color.MAGENTA else Color.CYAN;
             }
 
-            hal.GPIO_WriteBit(hal.GPIOA, hal.GPIO_Pin_3, if (led_on) hal.Bit_SET else hal.Bit_RESET);
+            dvd_node.setPos(new_x, new_y);
 
-            // 计算脏区域 (Dirty Region) 包含旧位置和新位置
-            const old_rect = ui.Rect{ .x = @intCast(old_x), .y = @intCast(old_y), .w = dvd_w, .h = dvd_h };
-            const new_rect = ui.Rect{ .x = @intCast(new_x), .y = @intCast(new_y), .w = dvd_w, .h = dvd_h };
-            const dirty_rect = old_rect.unionRect(new_rect);
-
-            // 动态分配脏区域大小的 Canvas
-            if (ui.Canvas.create(allocator, dirty_rect.x, dirty_rect.y, dirty_rect.w, dirty_rect.h)) |canvas_val| {
-                var dirty_canvas = canvas_val;
-                defer dirty_canvas.destroy(allocator);
-
-                // 1. 清理背景 (在内存中，无闪烁)
-                dirty_canvas.clear(lcd.Color.BLACK);
-
-                // 2. 绘制新的 DVD 图像 (计算在新 Canvas 中的相对坐标)
-                const rel_x = @as(u16, @intCast(new_x)) - dirty_rect.x;
-                const rel_y = @as(u16, @intCast(new_y)) - dirty_rect.y;
-
-                const dvd_bg = if (dvd_dx > 0 and dvd_dy > 0) lcd.Color.BLUE else if (dvd_dx < 0 and dvd_dy > 0) lcd.Color.RED else if (dvd_dx > 0 and dvd_dy < 0) lcd.Color.MAGENTA else lcd.Color.CYAN;
-
-                dirty_canvas.fillRect(rel_x, rel_y, dvd_w, dvd_h, dvd_bg);
-                dirty_canvas.drawRect(rel_x, rel_y, dvd_w, dvd_h, lcd.Color.WHITE);
-                // Demonstrate new primitives
-                dirty_canvas.drawLine(rel_x, rel_y, rel_x + dvd_w - 1, rel_y + dvd_h - 1, lcd.Color.YELLOW);
-                dirty_canvas.drawCircle(rel_x + dvd_w / 2, rel_y + dvd_h / 2, dvd_h / 3, lcd.Color.GREEN);
-
-                dirty_canvas.showString(rel_x + 14, rel_y + 8, 16, "DVD", lcd.Color.WHITE, null);
-
-                // 3. DMA 将完美的复合图像推送到屏幕的脏区域
-                dirty_canvas.flush();
-            } else |_| {
-                debug.print("OOM: Failed to alloc dirty region\r\n", .{});
-            }
-
-            // 保存新位置作为下一次的旧位置
-            old_x = new_x;
-            old_y = new_y;
+            // Render UI
+            display.render();
         }
     }
 }
