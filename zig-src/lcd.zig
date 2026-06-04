@@ -15,12 +15,37 @@ pub const Color = @import("ui/color.zig").Color565;
 pub var back_color: u16 = Color.BLACK.toRgb565();
 pub var fore_color: u16 = Color.WHITE.toRgb565();
 
-// --- Interrupt State ---
 pub var dma_tc_flag: bool = true;
 pub var dma_tc_counter: u32 = 0;
 pub var dma_auto_cleanup: bool = false;
 
-// --- SPI helpers ---
+comptime {
+    interrupt.exportFastIrq("DMA1_Channel5_IRQHandler", struct {
+        fn impl() callconv(.c) void {
+            if (hal.DMA_GetITStatus(hal.DMA1_IT_TC5) != hal.RESET) {
+                hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
+
+                if (@as(*volatile bool, &dma_auto_cleanup).*) {
+                    // Wait for SPI to finish shifting the last word
+                    while (hal.SPI_I2S_GetFlagStatus(hal.SPI2, hal.SPI_I2S_FLAG_BSY) == hal.SET) {}
+                    // Set CS High
+                    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
+
+                    // Restore 8-bit mode transparently
+                    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
+                    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_8b);
+                    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
+
+                    @as(*volatile bool, &dma_auto_cleanup).* = false;
+                }
+
+                @as(*volatile bool, &dma_tc_flag).* = true;
+                @as(*volatile u32, &dma_tc_counter).* +%= 1;
+            }
+        }
+    }.impl);
+}
+
 fn spiWaitBusIdle() void {
     while (hal.SPI_I2S_GetFlagStatus(hal.SPI2, hal.SPI_I2S_FLAG_BSY) == hal.SET) {}
 }
@@ -61,8 +86,6 @@ fn writeReg(dat: u8) void {
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_10, hal.Bit_SET);
 }
-
-// --- Core operations ---
 
 pub fn addressSet(x1: u16, y1: u16, x2: u16, y2: u16) void {
     const x_off: u16 = if (USE_HORIZONTAL == 1 or USE_HORIZONTAL == 3) 80 else 0;
@@ -165,37 +188,6 @@ pub fn flushPixels(x1: u16, y1: u16, x2: u16, y2: u16, pixels: [*]const u16) voi
     addressSet(x1, y1, x2, y2);
     writePixels(pixels, count);
 }
-
-// --- Interrupt Handling ---
-
-comptime {
-    interrupt.exportFastIrq("DMA1_Channel5_IRQHandler", struct {
-        fn impl() callconv(.c) void {
-            if (hal.DMA_GetITStatus(hal.DMA1_IT_TC5) != hal.RESET) {
-                hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
-
-                if (@as(*volatile bool, &dma_auto_cleanup).*) {
-                    // Wait for SPI to finish shifting the last word
-                    while (hal.SPI_I2S_GetFlagStatus(hal.SPI2, hal.SPI_I2S_FLAG_BSY) == hal.SET) {}
-                    // Set CS High
-                    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
-
-                    // Restore 8-bit mode transparently
-                    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
-                    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_8b);
-                    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
-
-                    @as(*volatile bool, &dma_auto_cleanup).* = false;
-                }
-
-                @as(*volatile bool, &dma_tc_flag).* = true;
-                @as(*volatile u32, &dma_tc_counter).* +%= 1;
-            }
-        }
-    }.impl);
-}
-
-// --- Hardware init ---
 
 fn initGpio() void {
     var gpio: hal.GPIO_InitTypeDef = .{ .GPIO_Pin = 0, .GPIO_Speed = 0, .GPIO_Mode = 0 };

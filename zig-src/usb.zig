@@ -22,7 +22,6 @@ comptime {
         }
     }.impl);
 
-    // 如果你实际只用 USBHS，可以先注释掉 OTG_FS_IRQHandler
     interrupt.exportFastIrq("OTG_FS_IRQHandler", struct {
         fn impl() callconv(.c) void {
             dcd_int_handler(0);

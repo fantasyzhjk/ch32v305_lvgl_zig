@@ -31,8 +31,9 @@ const c_sources = [_][]const u8{
     "zig-src/c/src/usb_descriptors.c",
     "zig-src/c/src/usb_app.c",
     "zig-src/c/src/stdio.c",
-    "zig-src/c/src/system_ch32v30x.c",
+    "zig-src/c/src/string.c",
     "zig-src/c/src/ch32v30x_it.c",
+    "zig-src/c/src/system_ch32v30x.c",
 };
 
 pub fn build(b: *std.Build) void {
