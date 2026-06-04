@@ -8,13 +8,13 @@ pub var system_ticks: u32 = 0;
 
 comptime {
     interrupt.exportFastIrq("TIM2_IRQHandler", struct {
-        fn body() callconv(.c) void {
+        fn impl() callconv(.c) void {
             if (hal.TIM_GetITStatus(hal.TIM2, hal.TIM_IT_Update) != hal.RESET) {
                 hal.TIM_ClearITPendingBit(hal.TIM2, hal.TIM_IT_Update);
                 @as(*volatile u32, &system_ticks).* +%= 1;
             }
         }
-    }.body);
+    }.impl);
 }
 
 pub fn init() void {

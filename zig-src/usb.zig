@@ -17,17 +17,17 @@ pub const Error = error{
 
 comptime {
     interrupt.exportFastIrq("USBHS_IRQHandler", struct {
-        fn body() callconv(.c) void {
+        fn impl() callconv(.c) void {
             dcd_int_handler(0);
         }
-    }.body);
+    }.impl);
 
     // 如果你实际只用 USBHS，可以先注释掉 OTG_FS_IRQHandler
     interrupt.exportFastIrq("OTG_FS_IRQHandler", struct {
-        fn body() callconv(.c) void {
+        fn impl() callconv(.c) void {
             dcd_int_handler(0);
         }
-    }.body);
+    }.impl);
 }
 
 pub fn init() Error!void {

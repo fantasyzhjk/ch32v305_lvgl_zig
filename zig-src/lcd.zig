@@ -486,13 +486,13 @@ fn waitDmaTc(prev_count: i32) void {
 
 comptime {
     interrupt.exportFastIrq("DMA1_Channel5_IRQHandler", struct {
-        fn body() callconv(.c) void {
+        fn impl() callconv(.c) void {
             if (hal.DMA_GetITStatus(hal.DMA1_IT_TC5) != hal.RESET) {
                 hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
                 @as(*volatile i32, &dma_tc_flag).* +%= 1;
             }
         }
-    }.body);
+    }.impl);
 }
 
 fn initDma() void {

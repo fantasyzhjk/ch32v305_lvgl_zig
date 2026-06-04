@@ -16,7 +16,6 @@ extern "C" {
 
 #include "ch32v30x.h"
 
-void SysTick_Handler(void);
 void EnableInterrupts(IRQn_Type IRQn);
 
 #ifdef __cplusplus
