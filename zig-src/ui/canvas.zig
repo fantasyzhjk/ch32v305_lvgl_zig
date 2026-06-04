@@ -3,6 +3,7 @@ const font = @import("font.zig");
 const Color = @import("color.zig").Color565;
 const types = @import("types.zig");
 
+const FontSize = types.FontSize;
 const Rect = types.Rect;
 
 pub const Canvas = struct {
@@ -156,37 +157,44 @@ pub const Canvas = struct {
         }
     }
 
-    fn glyphLit(ch: u8, size: u32, col: i32, row: i32) bool {
+    fn glyphLit(comptime font_size: FontSize, ch: u8, col: i32, row: i32) bool {
         const idx: usize = @as(usize, ch - 0x20);
         const ucol: usize = @intCast(col);
 
-        return switch (size) {
-            12 => blk: {
+        return switch (font_size) {
+            .px12 => blk: {
                 const val = (@as(u16, font.asc2_1206[idx][ucol * 2]) << 8) |
                     @as(u16, font.asc2_1206[idx][ucol * 2 + 1]);
                 const bit_pos: u4 = @intCast(15 - row);
                 break :blk ((val >> bit_pos) & 1) != 0;
             },
-            16 => blk: {
+            .px16 => blk: {
                 const val = (@as(u16, font.asc2_1608[idx][ucol * 2]) << 8) |
                     @as(u16, font.asc2_1608[idx][ucol * 2 + 1]);
                 const bit_pos: u4 = @intCast(15 - row);
                 break :blk ((val >> bit_pos) & 1) != 0;
             },
-            24 => blk: {
+            .px24 => blk: {
                 const val = (@as(u32, font.asc2_2412[idx][ucol * 3]) << 16) |
                     (@as(u32, font.asc2_2412[idx][ucol * 3 + 1]) << 8) |
                     @as(u32, font.asc2_2412[idx][ucol * 3 + 2]);
                 const bit_pos: u5 = @intCast(23 - row);
                 break :blk ((val >> bit_pos) & 1) != 0;
             },
-            else => false,
         };
     }
 
-    pub fn showChar(self: *Canvas, x_off: i32, y_off: i32, ch: u8, size: u32, color: Color, bg_color: ?Color) void {
+    pub fn showChar(self: *Canvas, x_off: i32, y_off: i32, ch: u8, font_size: FontSize, color: Color, bg_color: ?Color) void {
+        switch (font_size) {
+            .px12 => self.showCharSized(x_off, y_off, ch, .px12, color, bg_color),
+            .px16 => self.showCharSized(x_off, y_off, ch, .px16, color, bg_color),
+            .px24 => self.showCharSized(x_off, y_off, ch, .px24, color, bg_color),
+        }
+    }
+
+    fn showCharSized(self: *Canvas, x_off: i32, y_off: i32, ch: u8, comptime font_size: FontSize, color: Color, bg_color: ?Color) void {
         if (ch < 0x20 or ch > 0x7e) return;
-        const metrics = types.fontMetrics(size) orelse return;
+        const metrics = types.fontMetrics(font_size);
 
         const char_rect = Rect.init(x_off, y_off, metrics.w, metrics.h);
         const res = Rect.intersect(char_rect, self.clip) orelse return;
@@ -199,7 +207,7 @@ pub const Canvas = struct {
             var x = res.x;
             while (x < res.x + res.w) : (x += 1) {
                 const col = x - x_off;
-                if (glyphLit(ch, size, col, row)) {
+                if (glyphLit(font_size, ch, col, row)) {
                     self.buf[self.indexOf(x, y)] = raw_color;
                 } else if (raw_bg) |bg| {
                     self.buf[self.indexOf(x, y)] = bg;
@@ -208,8 +216,16 @@ pub const Canvas = struct {
         }
     }
 
-    pub fn showString(self: *Canvas, x_off: i32, y_off: i32, size: u32, str: []const u8, color: Color, bg_color: ?Color) void {
-        const metrics = types.fontMetrics(size) orelse return;
+    pub fn showString(self: *Canvas, x_off: i32, y_off: i32, font_size: FontSize, str: []const u8, color: Color, bg_color: ?Color) void {
+        switch (font_size) {
+            .px12 => self.showStringSized(x_off, y_off, .px12, str, color, bg_color),
+            .px16 => self.showStringSized(x_off, y_off, .px16, str, color, bg_color),
+            .px24 => self.showStringSized(x_off, y_off, .px24, str, color, bg_color),
+        }
+    }
+
+    fn showStringSized(self: *Canvas, x_off: i32, y_off: i32, comptime font_size: FontSize, str: []const u8, color: Color, bg_color: ?Color) void {
+        const metrics = types.fontMetrics(font_size);
         var cx = x_off;
         var cy = y_off;
 
@@ -219,7 +235,7 @@ pub const Canvas = struct {
                 cy += metrics.h;
                 continue;
             }
-            self.showChar(cx, cy, ch, size, color, bg_color);
+            self.showCharSized(cx, cy, ch, font_size, color, bg_color);
             cx += metrics.w;
         }
     }

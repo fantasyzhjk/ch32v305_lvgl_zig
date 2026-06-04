@@ -157,9 +157,23 @@ pub const Display = struct {
     }
 
     pub fn create(self: *Display, comptime T: type, args: anytype) !*T {
+        comptime validateWidget(T);
+
         const item = try self.allocator.create(T);
-        item.* = @call(.auto, T.init, args);
+        item.* = T.init(args);
         item.asNode().setDisplayRecursive(self);
+        return item;
+    }
+
+    pub fn add(self: *Display, parent: anytype, comptime T: type, args: anytype) !*T {
+        const item = try self.create(T, args);
+        nodeFrom(parent).addChild(item.asNode());
+        return item;
+    }
+
+    pub fn addToScreen(self: *Display, comptime T: type, args: anytype) !*T {
+        const item = try self.create(T, args);
+        self.screen.addChild(item.asNode());
         return item;
     }
 
@@ -315,7 +329,7 @@ pub const Display = struct {
 
             var child = node.first_child;
             while (child) |c| {
-                self.renderNodeRecursive(c, canvas, clip_rect);
+                self.renderNodeRecursive(c, canvas, draw_clip);
                 child = c.next;
             }
 
@@ -323,3 +337,29 @@ pub const Display = struct {
         }
     }
 };
+
+fn validateWidget(comptime T: type) void {
+    if (!@hasDecl(T, "Options")) {
+        @compileError(@typeName(T) ++ " must declare pub const Options");
+    }
+    if (!@hasDecl(T, "init")) {
+        @compileError(@typeName(T) ++ " must declare pub fn init(options: Options)");
+    }
+    if (!@hasDecl(T, "asNode")) {
+        @compileError(@typeName(T) ++ " must declare pub fn asNode(self: *Self) *ui.Node");
+    }
+}
+
+fn nodeFrom(parent: anytype) *Node {
+    const Parent = @TypeOf(parent);
+    if (Parent == *Node) return parent;
+
+    switch (@typeInfo(Parent)) {
+        .pointer => |ptr| {
+            if (@hasDecl(ptr.child, "asNode")) return parent.asNode();
+        },
+        else => {},
+    }
+
+    @compileError("parent must be *ui.Node or a pointer to a widget with asNode()");
+}

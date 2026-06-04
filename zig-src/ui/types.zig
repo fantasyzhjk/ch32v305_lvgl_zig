@@ -80,22 +80,35 @@ pub const Rect = struct {
     }
 };
 
+pub fn rect(x: i32, y: i32, w: i32, h: i32) Rect {
+    return Rect.init(x, y, w, h);
+}
+
 pub const FontMetrics = struct {
     w: i32,
     h: i32,
 };
 
-pub fn fontMetrics(size: u32) ?FontMetrics {
-    return switch (size) {
-        12 => .{ .w = 6, .h = 12 },
-        16 => .{ .w = 8, .h = 16 },
-        24 => .{ .w = 12, .h = 24 },
-        else => null,
-    };
+pub const FontSize = enum {
+    px12,
+    px16,
+    px24,
+
+    pub fn metrics(self: FontSize) FontMetrics {
+        return switch (self) {
+            .px12 => .{ .w = 6, .h = 12 },
+            .px16 => .{ .w = 8, .h = 16 },
+            .px24 => .{ .w = 12, .h = 24 },
+        };
+    }
+};
+
+pub fn fontMetrics(size: FontSize) FontMetrics {
+    return size.metrics();
 }
 
-pub fn textSize(size: u32, text: []const u8) FontMetrics {
-    const metrics = fontMetrics(size) orelse return .{ .w = 0, .h = 0 };
+pub fn textSize(size: FontSize, text: []const u8) FontMetrics {
+    const metrics = fontMetrics(size);
     var line_w: i32 = 0;
     var max_w: i32 = 0;
     var lines: i32 = 1;

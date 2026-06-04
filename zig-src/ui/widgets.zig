@@ -6,13 +6,40 @@ const types = @import("types.zig");
 
 const Align = types.Align;
 const Canvas = canvas_mod.Canvas;
+const FontSize = types.FontSize;
 const Node = core.Node;
+const Rect = types.Rect;
+
+fn optionalColorData(color: ?Color) ?u16 {
+    return if (color) |c| c.data else null;
+}
+
+fn requiredOption(comptime T: type, args: anytype, comptime name: []const u8) T {
+    const Args = @TypeOf(args);
+    if (!@hasField(Args, name)) {
+        @compileError("missing required UI option: " ++ name);
+    }
+    return @field(args, name);
+}
+
+fn option(comptime T: type, args: anytype, comptime name: []const u8, default: T) T {
+    const Args = @TypeOf(args);
+    if (@hasField(Args, name)) {
+        return @field(args, name);
+    }
+    return default;
+}
 
 pub const Container = struct {
     node: Node,
 
-    pub fn init(x: i32, y: i32, w: i32, h: i32) Container {
-        return .{ .node = Node.init(x, y, w, h) };
+    pub const Options = struct {
+        area: Rect,
+    };
+
+    pub fn init(args: anytype) Container {
+        const area = requiredOption(Rect, args, "area");
+        return .{ .node = Node.init(area.x, area.y, area.w, area.h) };
     }
 
     pub fn asNode(self: *Container) *Node {
@@ -25,9 +52,18 @@ pub const Panel = struct {
     bg_color: ?Color = Color.DARKGRAY,
     border_color: ?Color = Color.WHITE,
 
-    pub fn init(x: i32, y: i32, w: i32, h: i32) Panel {
+    pub const Options = struct {
+        area: Rect,
+        bg_color: ?Color = Color.DARKGRAY,
+        border_color: ?Color = Color.WHITE,
+    };
+
+    pub fn init(args: anytype) Panel {
+        const area = requiredOption(Rect, args, "area");
         var self = Panel{
-            .node = Node.init(x, y, w, h),
+            .node = Node.init(area.x, area.y, area.w, area.h),
+            .bg_color = option(?Color, args, "bg_color", Color.DARKGRAY),
+            .border_color = option(?Color, args, "border_color", Color.WHITE),
         };
         self.node.draw_cb = draw;
         return self;
@@ -38,17 +74,13 @@ pub const Panel = struct {
     }
 
     pub fn setBgColor(self: *Panel, bg_color: ?Color) void {
-        const old = if (self.bg_color) |c| c.data else null;
-        const new = if (bg_color) |c| c.data else null;
-        if (old == new) return;
+        if (optionalColorData(self.bg_color) == optionalColorData(bg_color)) return;
         self.bg_color = bg_color;
         self.node.invalidate();
     }
 
     pub fn setBorderColor(self: *Panel, border_color: ?Color) void {
-        const old = if (self.border_color) |c| c.data else null;
-        const new = if (border_color) |c| c.data else null;
-        if (old == new) return;
+        if (optionalColorData(self.border_color) == optionalColorData(border_color)) return;
         self.border_color = border_color;
         self.node.invalidate();
     }
@@ -75,12 +107,24 @@ pub const Line = struct {
     y2: i32,
     color: Color,
 
-    pub fn init(x: i32, y: i32, w: i32, h: i32, color: Color) Line {
+    pub const Options = struct {
+        area: Rect,
+        color: Color = Color.WHITE,
+        x1: i32 = 0,
+        y1: i32 = 0,
+        x2: ?i32 = null,
+        y2: ?i32 = null,
+    };
+
+    pub fn init(args: anytype) Line {
+        const area = requiredOption(Rect, args, "area");
         var self = Line{
-            .node = Node.init(x, y, w, h),
-            .x2 = @max(0, w - 1),
-            .y2 = @max(0, h - 1),
-            .color = color,
+            .node = Node.init(area.x, area.y, area.w, area.h),
+            .x1 = option(i32, args, "x1", 0),
+            .y1 = option(i32, args, "y1", 0),
+            .x2 = option(?i32, args, "x2", null) orelse @max(0, area.w - 1),
+            .y2 = option(?i32, args, "y2", null) orelse @max(0, area.h - 1),
+            .color = option(Color, args, "color", Color.WHITE),
         };
         self.node.draw_cb = draw;
         return self;
@@ -117,13 +161,27 @@ pub const Label = struct {
     text: []const u8,
     color: Color = Color.WHITE,
     bg_color: ?Color = null,
-    font_size: u32 = 16,
+    font: FontSize = .px16,
     text_align: Align = .left,
 
-    pub fn init(x: i32, y: i32, w: i32, h: i32, text: []const u8) Label {
+    pub const Options = struct {
+        area: Rect,
+        text: []const u8,
+        color: Color = Color.WHITE,
+        bg_color: ?Color = null,
+        font: FontSize = .px16,
+        text_align: Align = .left,
+    };
+
+    pub fn init(args: anytype) Label {
+        const area = requiredOption(Rect, args, "area");
         var self = Label{
-            .node = Node.init(x, y, w, h),
-            .text = text,
+            .node = Node.init(area.x, area.y, area.w, area.h),
+            .text = requiredOption([]const u8, args, "text"),
+            .color = option(Color, args, "color", Color.WHITE),
+            .bg_color = option(?Color, args, "bg_color", null),
+            .font = option(FontSize, args, "font", .px16),
+            .text_align = option(Align, args, "text_align", .left),
         };
         self.node.draw_cb = draw;
         return self;
@@ -147,10 +205,20 @@ pub const Label = struct {
     }
 
     pub fn setBgColor(self: *Label, bg_color: ?Color) void {
-        const old = if (self.bg_color) |c| c.data else null;
-        const new = if (bg_color) |c| c.data else null;
-        if (old == new) return;
+        if (optionalColorData(self.bg_color) == optionalColorData(bg_color)) return;
         self.bg_color = bg_color;
+        self.node.invalidate();
+    }
+
+    pub fn setFont(self: *Label, font_size: FontSize) void {
+        if (self.font == font_size) return;
+        self.font = font_size;
+        self.node.invalidate();
+    }
+
+    pub fn setAlign(self: *Label, text_align: Align) void {
+        if (self.text_align == text_align) return;
+        self.text_align = text_align;
         self.node.invalidate();
     }
 
@@ -161,10 +229,10 @@ pub const Label = struct {
             canvas.fillRect(abs.x, abs.y, abs.w, abs.h, bg);
         }
 
-        const size = types.textSize(self.font_size, self.text);
+        const size = types.textSize(self.font, self.text);
         const x = types.alignedX(abs, size.w, self.text_align);
         const y = abs.y + @max(0, @divTrunc(abs.h - size.h, 2));
-        canvas.showString(x, y, self.font_size, self.text, self.color, self.bg_color);
+        canvas.showString(x, y, self.font, self.text, self.color, self.bg_color);
     }
 };
 
@@ -173,15 +241,30 @@ pub const MarqueeLabel = struct {
     text: []const u8,
     color: Color = Color.WHITE,
     bg_color: ?Color = null,
-    font_size: u32 = 16,
+    font: FontSize = .px16,
     offset: i32,
     gap: i32 = 16,
 
-    pub fn init(x: i32, y: i32, w: i32, h: i32, text: []const u8) MarqueeLabel {
+    pub const Options = struct {
+        area: Rect,
+        text: []const u8,
+        color: Color = Color.WHITE,
+        bg_color: ?Color = null,
+        font: FontSize = .px16,
+        offset: ?i32 = null,
+        gap: i32 = 16,
+    };
+
+    pub fn init(args: anytype) MarqueeLabel {
+        const area = requiredOption(Rect, args, "area");
         var self = MarqueeLabel{
-            .node = Node.init(x, y, w, h),
-            .text = text,
-            .offset = w,
+            .node = Node.init(area.x, area.y, area.w, area.h),
+            .text = requiredOption([]const u8, args, "text"),
+            .color = option(Color, args, "color", Color.WHITE),
+            .bg_color = option(?Color, args, "bg_color", null),
+            .font = option(FontSize, args, "font", .px16),
+            .offset = option(?i32, args, "offset", null) orelse area.w,
+            .gap = option(i32, args, "gap", 16),
         };
         self.node.draw_cb = draw;
         return self;
@@ -217,15 +300,21 @@ pub const MarqueeLabel = struct {
     }
 
     pub fn setBgColor(self: *MarqueeLabel, bg_color: ?Color) void {
-        const old = if (self.bg_color) |c| c.data else null;
-        const new = if (bg_color) |c| c.data else null;
-        if (old == new) return;
+        if (optionalColorData(self.bg_color) == optionalColorData(bg_color)) return;
         self.bg_color = bg_color;
         self.node.invalidate();
     }
 
+    pub fn setFont(self: *MarqueeLabel, font_size: FontSize) void {
+        if (self.font == font_size) return;
+        self.node.invalidate();
+        self.font = font_size;
+        self.offset = self.wrapOffset(self.offset);
+        self.node.invalidate();
+    }
+
     fn wrapOffset(self: *const MarqueeLabel, offset: i32) i32 {
-        const text_w = types.textSize(self.font_size, self.text).w;
+        const text_w = types.textSize(self.font, self.text).w;
         const stride: i32 = @max(@as(i32, 1), text_w + self.gap);
         var wrapped = offset;
         while (wrapped < -stride) {
@@ -244,7 +333,7 @@ pub const MarqueeLabel = struct {
             canvas.fillRect(abs.x, abs.y, abs.w, abs.h, bg);
         }
 
-        const size = types.textSize(self.font_size, self.text);
+        const size = types.textSize(self.font, self.text);
         if (size.w <= 0 or size.h <= 0) return;
 
         const y = abs.y + @max(0, @divTrunc(abs.h - size.h, 2));
@@ -255,7 +344,7 @@ pub const MarqueeLabel = struct {
             x -= stride;
         }
         while (x < abs.x + abs.w) {
-            canvas.showString(x, y, self.font_size, self.text, self.color, self.bg_color);
+            canvas.showString(x, y, self.font, self.text, self.color, self.bg_color);
             x += stride;
         }
     }
@@ -264,7 +353,7 @@ pub const MarqueeLabel = struct {
 pub const Button = struct {
     node: Node,
     text: []const u8,
-    font_size: u32 = 16,
+    font: FontSize = .px16,
     text_color: Color = Color.WHITE,
     bg_color: Color = Color.BLUE,
     pressed_bg_color: Color = Color.DARKGRAY,
@@ -273,10 +362,32 @@ pub const Button = struct {
     pressed: bool = false,
     enabled: bool = true,
 
-    pub fn init(x: i32, y: i32, w: i32, h: i32, text: []const u8) Button {
+    pub const Options = struct {
+        area: Rect,
+        text: []const u8,
+        font: FontSize = .px16,
+        text_color: Color = Color.WHITE,
+        bg_color: Color = Color.BLUE,
+        pressed_bg_color: Color = Color.DARKGRAY,
+        disabled_bg_color: Color = Color.LGRAY,
+        border_color: Color = Color.WHITE,
+        pressed: bool = false,
+        enabled: bool = true,
+    };
+
+    pub fn init(args: anytype) Button {
+        const area = requiredOption(Rect, args, "area");
         var self = Button{
-            .node = Node.init(x, y, w, h),
-            .text = text,
+            .node = Node.init(area.x, area.y, area.w, area.h),
+            .text = requiredOption([]const u8, args, "text"),
+            .font = option(FontSize, args, "font", .px16),
+            .text_color = option(Color, args, "text_color", Color.WHITE),
+            .bg_color = option(Color, args, "bg_color", Color.BLUE),
+            .pressed_bg_color = option(Color, args, "pressed_bg_color", Color.DARKGRAY),
+            .disabled_bg_color = option(Color, args, "disabled_bg_color", Color.LGRAY),
+            .border_color = option(Color, args, "border_color", Color.WHITE),
+            .pressed = option(bool, args, "pressed", false),
+            .enabled = option(bool, args, "enabled", true),
         };
         self.node.draw_cb = draw;
         return self;
@@ -312,10 +423,10 @@ pub const Button = struct {
         canvas.fillRect(abs.x, abs.y, abs.w, abs.h, bg);
         canvas.drawRect(abs.x, abs.y, abs.w, abs.h, self.border_color);
 
-        const size = types.textSize(self.font_size, self.text);
+        const size = types.textSize(self.font, self.text);
         const x = types.alignedX(abs, size.w, .center);
         const y = abs.y + @max(0, @divTrunc(abs.h - size.h, 2));
-        canvas.showString(x, y, self.font_size, self.text, self.text_color, bg);
+        canvas.showString(x, y, self.font, self.text, self.text_color, bg);
     }
 };
 
@@ -326,11 +437,22 @@ pub const Image = struct {
     color_key: ?u16 = null,
     bg_color: ?Color = null,
 
-    pub fn init(x: i32, y: i32, w: i32, h: i32, pixels: []const u16) Image {
+    pub const Options = struct {
+        area: Rect,
+        pixels: []const u16 = &.{},
+        stride: ?i32 = null,
+        color_key: ?u16 = null,
+        bg_color: ?Color = null,
+    };
+
+    pub fn init(args: anytype) Image {
+        const area = requiredOption(Rect, args, "area");
         var self = Image{
-            .node = Node.init(x, y, w, h),
-            .pixels = pixels,
-            .stride = w,
+            .node = Node.init(area.x, area.y, area.w, area.h),
+            .pixels = option([]const u16, args, "pixels", &.{}),
+            .stride = option(?i32, args, "stride", null) orelse area.w,
+            .color_key = option(?u16, args, "color_key", null),
+            .bg_color = option(?Color, args, "bg_color", null),
         };
         self.node.draw_cb = draw;
         return self;

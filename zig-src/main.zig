@@ -45,6 +45,7 @@ fn formatTitleText() []const u8 {
 }
 
 pub export fn main() noreturn {
+    // 1. 硬件外设初始化
     hal.NVIC_PriorityGroupConfig(hal.NVIC_PriorityGroup_2);
     c.Delay_Init();
     c.USART_Printf_Init(115200);
@@ -59,39 +60,50 @@ pub export fn main() noreturn {
     debug.print("hello from zig DVD tree-ui animation\r\n", .{});
 
     const allocator = fba.allocator();
-
     var display = ui.Display.init(allocator, 24) catch unreachable;
     display.bind();
 
-    const title = display.create(ui.widgets.MarqueeLabel, .{ 0, 0, lcd.WIDTH, 20, formatTitleText() }) catch unreachable;
-    title.setBgColor(Color.WHITE);
-    title.setColor(Color.BLACK);
-    title.gap = 24;
-    title.setOffset(lcd.WIDTH);
+    const title = display.addToScreen(ui.MarqueeLabel, .{
+        .area = ui.rect(0, 0, lcd.WIDTH, 20),
+        .text = formatTitleText(),
+        .bg_color = Color.WHITE,
+        .color = Color.BLACK,
+        .gap = 24,
+        .offset = lcd.WIDTH,
+    }) catch unreachable;
 
-    const dvd_group = display.create(ui.widgets.Container, .{ 40, 50, 60, 30 }) catch unreachable;
+    const dvd_group = display.addToScreen(ui.Container, .{
+        .area = ui.rect(40, 50, 60, 30),
+    }) catch unreachable;
     const dvd_node = dvd_group.asNode();
 
-    const dvd_panel = display.create(ui.widgets.Panel, .{ 0, 0, 60, 30 }) catch unreachable;
-    dvd_panel.setBgColor(dvd_color);
-    dvd_panel.setBorderColor(Color.WHITE);
+    const dvd_panel = display.add(dvd_group, ui.Panel, .{
+        .area = ui.rect(0, 0, 60, 30),
+        .bg_color = dvd_color,
+        .border_color = Color.WHITE,
+    }) catch unreachable;
 
-    const dvd_line_a = display.create(ui.widgets.Line, .{ 0, 0, 60, 30, Color.YELLOW }) catch unreachable;
-    const dvd_line_b = display.create(ui.widgets.Line, .{ 0, 0, 60, 30, Color.GREEN }) catch unreachable;
-    dvd_line_b.setPoints(59, 0, 0, 29);
+    _ = display.add(dvd_group, ui.Line, .{
+        .area = ui.rect(0, 0, 60, 30),
+        .color = Color.YELLOW,
+    }) catch unreachable;
 
-    const dvd_label = display.create(ui.widgets.Label, .{ 0, 7, 60, 16, "DVD" }) catch unreachable;
-    dvd_label.text_align = .center;
-    dvd_label.setColor(Color.WHITE);
+    _ = display.add(dvd_group, ui.Line, .{
+        .area = ui.rect(0, 0, 60, 30),
+        .color = Color.GREEN,
+        .x1 = 59,
+        .x2 = 0,
+        .y2 = 29,
+    }) catch unreachable;
 
-    dvd_node.addChild(dvd_panel.asNode());
-    dvd_node.addChild(dvd_line_a.asNode());
-    dvd_node.addChild(dvd_line_b.asNode());
-    dvd_node.addChild(dvd_label.asNode());
+    _ = display.add(dvd_group, ui.Label, .{
+        .area = ui.rect(0, 7, 60, 16),
+        .text = "DVD",
+        .text_align = .center,
+        .color = Color.WHITE,
+    }) catch unreachable;
 
-    display.screenAddChild(title.asNode());
-    display.screenAddChild(dvd_node);
-
+    // 清屏
     lcd.fill(0, 0, lcd.WIDTH, lcd.HEIGHT, Color.BLACK.toRgb565());
 
     var led_on = false;
@@ -135,15 +147,28 @@ pub export fn main() noreturn {
 
             if (hit) {
                 led_on = !led_on;
-                hal.GPIO_WriteBit(hal.GPIOA, hal.GPIO_Pin_3, if (led_on) hal.Bit_SET else hal.Bit_RESET);
+                hal.GPIO_WriteBit(
+                    hal.GPIOA,
+                    hal.GPIO_Pin_3,
+                    if (led_on) hal.Bit_SET else hal.Bit_RESET,
+                );
 
-                dvd_color = if (dvd_dx > 0 and dvd_dy > 0) Color.BLUE else if (dvd_dx < 0 and dvd_dy > 0) Color.RED else if (dvd_dx > 0 and dvd_dy < 0) Color.MAGENTA else Color.CYAN;
+                if (dvd_dx > 0 and dvd_dy > 0) {
+                    dvd_color = Color.BLUE;
+                } else if (dvd_dx < 0 and dvd_dy > 0) {
+                    dvd_color = Color.RED;
+                } else if (dvd_dx > 0 and dvd_dy < 0) {
+                    dvd_color = Color.MAGENTA;
+                } else {
+                    dvd_color = Color.CYAN;
+                }
+
                 dvd_panel.setBgColor(dvd_color);
                 debug.print("DVD hit! New direction: ({}, {}), Color: {}\r\n", .{ dvd_dx, dvd_dy, dvd_color });
             }
 
+            // 应用新坐标并渲染
             dvd_node.setPos(new_x, new_y);
-
             display.render();
         }
     }
