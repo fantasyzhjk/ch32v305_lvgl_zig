@@ -29,6 +29,7 @@ pub fn addTusb(
     flags: []const []const u8,
 ) void {
     exe.root_module.addIncludePath(b.path("deps/tusb/src"));
+    exe.root_module.addIncludePath(b.path("deps/tusb/hw"));
     exe.root_module.addCSourceFiles(.{
         .root = b.path("deps/tusb/src"),
         .files = &.{
@@ -63,9 +64,15 @@ pub fn addTusb(
             "class/vendor/vendor_host.c",
             // typec
             "typec/usbc.c",
+            // wch
+            "portable/wch/dcd_ch32_usbfs.c",
+            "portable/wch/dcd_ch32_usbhs.c",
+            "portable/wch/hcd_ch32_usbfs.c",
         },
         .flags = flags,
     });
+    exe.root_module.addCMacro("CFG_TUSB_MCU", "OPT_MCU_CH32V307");
+    exe.root_module.addCMacro("CFG_TUD_WCH_USBIP_USBHS", "1");
 }
 
 pub fn addLvgl(

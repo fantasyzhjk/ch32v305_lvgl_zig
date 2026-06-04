@@ -5,7 +5,11 @@
 * Date               : 2021/06/06
 * Description        : This file contains all the functions prototypes for the 
 *                      OPA firmware library.
-*******************************************************************************/ 
+*********************************************************************************
+* Copyright (c) 2021 Nanjing Qinheng Microelectronics Co., Ltd.
+* Attention: This software (modified or not) and binary are used for 
+* microcontroller manufactured by Nanjing Qinheng Microelectronics.
+*******************************************************************************/
 #ifndef __CH32V30x_OPA_H
 #define __CH32V30x_OPA_H
 
@@ -43,11 +47,11 @@ typedef enum
    CHN1
 }OPA_NSEL_TypeDef;
 
-/* OPA Mode enumeration */
+/* OPA out channel enumeration */
 typedef enum
 {
-   OUT_IO_ADC=0,
-   OUT_IO
+   OUT_IO_OUT0=0,
+   OUT_IO_OUT1
 }OPA_Mode_TypeDef;
 
 /* OPA Init Structure definition */
@@ -58,6 +62,7 @@ typedef struct
   OPA_NSEL_TypeDef  NSEL;         /* Specifies the negative channel of OPA */
   OPA_Mode_TypeDef  Mode;         /* Specifies the mode of OPA */
 }OPA_InitTypeDef;
+
 
 void OPA_DeInit(void);
 void OPA_Init(OPA_InitTypeDef* OPA_InitStruct);

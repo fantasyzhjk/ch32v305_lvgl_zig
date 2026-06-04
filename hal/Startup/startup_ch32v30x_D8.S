@@ -1,9 +1,13 @@
 /********************************** (C) COPYRIGHT *******************************
-* File Name          : startup_ch32v30x.s
+* File Name          : startup_ch32v30x_D8.s
 * Author             : WCH
-* Version            : V1.0.0
-* Date               : 2021/06/06
-* Description        : CH32V30x vector table for eclipse toolchain.
+* Version            : V1.0.2
+* Date               : 2025/10/21
+* Description        : CH32V303x Startup File
+*********************************************************************************
+* Copyright (c) 2021 Nanjing Qinheng Microelectronics Co., Ltd.
+* Attention: This software (modified or not) and binary are used for 
+* microcontroller manufactured by Nanjing Qinheng Microelectronics.
 *******************************************************************************/
 
 	.section	.init,"ax",@progbits
@@ -11,19 +15,7 @@
 	.align	1
 _start:
 	j	handle_reset
-	.word 0x00000013
-	.word 0x00000013
-	.word 0x00000013
-	.word 0x00000013
-	.word 0x00000013
-	.word 0x00000013
-	.word 0x00000013
-	.word 0x00000013
-	.word 0x00000013
-	.word 0x00000013
-	.word 0x00000013
-	.word 0x00000013
-	.word 0x00100073
+
     .section    .vector,"ax",@progbits
     .align  1
 _vector_base:
@@ -42,7 +34,7 @@ _vector_base:
     .word   0
     .word   SysTick_Handler            /* SysTick */
     .word   0
-    .word   SW_handler                 /* SW */
+    .word   SW_Handler                 /* SW */
     .word   0
     /* External Interrupts */
     .word   WWDG_IRQHandler            /* Window Watchdog */
@@ -87,13 +79,13 @@ _vector_base:
     .word   USART3_IRQHandler          /* USART3 */
     .word   EXTI15_10_IRQHandler       /* EXTI Line 15..10 */
     .word   RTCAlarm_IRQHandler        /* RTC Alarm through EXTI Line */
-    .word   USBWakeUp_IRQHandler       /* USB Wakeup from suspend */
+    .word   0
     .word   TIM8_BRK_IRQHandler        /* TIM8 Break */
     .word   TIM8_UP_IRQHandler         /* TIM8 Update */
     .word   TIM8_TRG_COM_IRQHandler    /* TIM8 Trigger and Commutation */
     .word   TIM8_CC_IRQHandler         /* TIM8 Capture Compare */
     .word   RNG_IRQHandler             /* RNG */
-    .word   FSMC_IRQHandler            /* FSMC */
+    .word   0
     .word   SDIO_IRQHandler            /* SDIO */
     .word   TIM5_IRQHandler            /* TIM5 */
     .word   SPI3_IRQHandler            /* SPI3 */
@@ -106,16 +98,16 @@ _vector_base:
     .word   DMA2_Channel3_IRQHandler   /* DMA2 Channel 3 */
     .word   DMA2_Channel4_IRQHandler   /* DMA2 Channel 4 */
     .word   DMA2_Channel5_IRQHandler   /* DMA2 Channel 5 */
-    .word   ETH_IRQHandler             /* ETH */
-    .word   ETH_WKUP_IRQHandler        /* ETH WakeUp */
-    .word   CAN2_TX_IRQHandler         /* CAN2 TX */
-    .word   CAN2_RX0_IRQHandler        /* CAN2 RX0 */
-    .word   CAN2_RX1_IRQHandler        /* CAN2 RX1 */
-    .word   CAN2_SCE_IRQHandler        /* CAN2 SCE */
-    .word   OTG_FS_IRQHandler          /* OTGFS */
-    .word   USBHSWakeup_IRQHandler     /* USBHS Wakeup */
-    .word   USBHS_IRQHandler           /* USBHS */
-    .word   DVP_IRQHandler             /* DVP */
+    .word   0
+    .word   0
+    .word   0
+    .word   0
+    .word   0
+    .word   0
+    .word   USBFS_IRQHandler          /* USBFS */
+    .word   0
+    .word   0
+    .word   0
     .word   UART6_IRQHandler           /* UART6 */
     .word   UART7_IRQHandler           /* UART7 */
     .word   UART8_IRQHandler           /* UART8 */
@@ -135,7 +127,6 @@ _vector_base:
     .word   DMA2_Channel11_IRQHandler  /* DMA2 Channel 11 */
 
     .option rvc;
-
     .section    .text.vector_handler, "ax", @progbits
     .weak   NMI_Handler                /* NMI */
     .weak   HardFault_Handler          /* Hard Fault */
@@ -143,7 +134,7 @@ _vector_base:
     .weak   Ecall_U_Mode_Handler       /* Ecall U Mode */
     .weak   Break_Point_Handler        /* Break Point */
     .weak   SysTick_Handler            /* SysTick */
-    .weak   SW_handler                 /* SW */
+    .weak   SW_Handler                 /* SW */
     .weak   WWDG_IRQHandler            /* Window Watchdog */
     .weak   PVD_IRQHandler             /* PVD through EXTI Line detect */
     .weak   TAMPER_IRQHandler          /* TAMPER */
@@ -186,13 +177,11 @@ _vector_base:
     .weak   USART3_IRQHandler          /* USART3 */
     .weak   EXTI15_10_IRQHandler       /* EXTI Line 15..10 */
     .weak   RTCAlarm_IRQHandler        /* RTC Alarm through EXTI Line */
-    .weak   USBWakeUp_IRQHandler       /* USB Wakeup from suspend */
     .weak   TIM8_BRK_IRQHandler        /* TIM8 Break */
     .weak   TIM8_UP_IRQHandler         /* TIM8 Update */
     .weak   TIM8_TRG_COM_IRQHandler    /* TIM8 Trigger and Commutation */
     .weak   TIM8_CC_IRQHandler         /* TIM8 Capture Compare */
     .weak   RNG_IRQHandler             /* RNG */
-    .weak   FSMC_IRQHandler            /* FSMC */
     .weak   SDIO_IRQHandler            /* SDIO */
     .weak   TIM5_IRQHandler            /* TIM5 */
     .weak   SPI3_IRQHandler            /* SPI3 */
@@ -205,16 +194,7 @@ _vector_base:
     .weak   DMA2_Channel3_IRQHandler   /* DMA2 Channel 3 */
     .weak   DMA2_Channel4_IRQHandler   /* DMA2 Channel 4 */
     .weak   DMA2_Channel5_IRQHandler   /* DMA2 Channel 5 */
-    .weak   ETH_IRQHandler             /* ETH */
-    .weak   ETH_WKUP_IRQHandler        /* ETH WakeUp */
-    .weak   CAN2_TX_IRQHandler         /* CAN2 TX */
-    .weak   CAN2_RX0_IRQHandler        /* CAN2 RX0 */
-    .weak   CAN2_RX1_IRQHandler        /* CAN2 RX1 */
-    .weak   CAN2_SCE_IRQHandler        /* CAN2 SCE */
-    .weak   OTG_FS_IRQHandler          /* OTGFS */
-    .weak   USBHSWakeup_IRQHandler     /* USBHS Wakeup */
-    .weak   USBHS_IRQHandler           /* USBHS */
-    .weak   DVP_IRQHandler             /* DVP */
+    .weak   USBFS_IRQHandler           /* USBFS */
     .weak   UART6_IRQHandler           /* UART6 */
     .weak   UART7_IRQHandler           /* UART7 */
     .weak   UART8_IRQHandler           /* UART8 */
@@ -233,116 +213,105 @@ _vector_base:
     .weak   DMA2_Channel10_IRQHandler  /* DMA2 Channel 10 */
     .weak   DMA2_Channel11_IRQHandler  /* DMA2 Channel 11 */
 
-NMI_Handler:  1:  j 1b
-HardFault_Handler:  1:  j 1b
-Ecall_M_Mode_Handler:  1:  j 1b
-Ecall_U_Mode_Handler:  1:  j 1b
-Break_Point_Handler:  1:  j 1b
-SysTick_Handler:  1:  j 1b
-SW_handler:  1:  j 1b
-WWDG_IRQHandler:  1:  j 1b
-PVD_IRQHandler:  1:  j 1b
-TAMPER_IRQHandler:  1:  j 1b
-RTC_IRQHandler:  1:  j 1b
-FLASH_IRQHandler:  1:  j 1b
-RCC_IRQHandler:  1:  j 1b
-EXTI0_IRQHandler:  1:  j 1b
-EXTI1_IRQHandler:  1:  j 1b
-EXTI2_IRQHandler:  1:  j 1b
-EXTI3_IRQHandler:  1:  j 1b
-EXTI4_IRQHandler:  1:  j 1b
-DMA1_Channel1_IRQHandler:  1:  j 1b
-DMA1_Channel2_IRQHandler:  1:  j 1b
-DMA1_Channel3_IRQHandler:  1:  j 1b
-DMA1_Channel4_IRQHandler:  1:  j 1b
-DMA1_Channel5_IRQHandler:  1:  j 1b
-DMA1_Channel6_IRQHandler:  1:  j 1b
-DMA1_Channel7_IRQHandler:  1:  j 1b
-ADC1_2_IRQHandler:  1:  j 1b
-USB_HP_CAN1_TX_IRQHandler:  1:  j 1b
-USB_LP_CAN1_RX0_IRQHandler:  1:  j 1b
-CAN1_RX1_IRQHandler:  1:  j 1b
-CAN1_SCE_IRQHandler:  1:  j 1b
-EXTI9_5_IRQHandler:  1:  j 1b
-TIM1_BRK_IRQHandler:  1:  j 1b
-TIM1_UP_IRQHandler:  1:  j 1b
-TIM1_TRG_COM_IRQHandler:  1:  j 1b
-TIM1_CC_IRQHandler:  1:  j 1b
-TIM2_IRQHandler:  1:  j 1b
-TIM3_IRQHandler:  1:  j 1b
-TIM4_IRQHandler:  1:  j 1b
-I2C1_EV_IRQHandler:  1:  j 1b
-I2C1_ER_IRQHandler:  1:  j 1b
-I2C2_EV_IRQHandler:  1:  j 1b
-I2C2_ER_IRQHandler:  1:  j 1b
-SPI1_IRQHandler:  1:  j 1b
-SPI2_IRQHandler:  1:  j 1b
-USART1_IRQHandler:  1:  j 1b
-USART2_IRQHandler:  1:  j 1b
-USART3_IRQHandler:  1:  j 1b
-EXTI15_10_IRQHandler:  1:  j 1b
-RTCAlarm_IRQHandler:  1:  j 1b
-USBWakeUp_IRQHandler:  1:  j 1b
-TIM8_BRK_IRQHandler:  1:  j 1b
-TIM8_UP_IRQHandler:  1:  j 1b
-TIM8_TRG_COM_IRQHandler:  1:  j 1b
-TIM8_CC_IRQHandler:  1:  j 1b
-RNG_IRQHandler:  1:  j 1b
-FSMC_IRQHandler:  1:  j 1b
-SDIO_IRQHandler:  1:  j 1b
-TIM5_IRQHandler:  1:  j 1b
-SPI3_IRQHandler:  1:  j 1b
-UART4_IRQHandler:  1:  j 1b
-UART5_IRQHandler:  1:  j 1b
-TIM6_IRQHandler:  1:  j 1b
-TIM7_IRQHandler:  1:  j 1b
-DMA2_Channel1_IRQHandler:  1:  j 1b
-DMA2_Channel2_IRQHandler:  1:  j 1b
-DMA2_Channel3_IRQHandler:  1:  j 1b
-DMA2_Channel4_IRQHandler:  1:  j 1b
-DMA2_Channel5_IRQHandler:  1:  j 1b
-ETH_IRQHandler:  1:  j 1b
-ETH_WKUP_IRQHandler:  1:  j 1b
-CAN2_TX_IRQHandler:  1:  j 1b
-CAN2_RX0_IRQHandler:  1:  j 1b
-CAN2_RX1_IRQHandler:  1:  j 1b
-CAN2_SCE_IRQHandler:  1:  j 1b
-OTG_FS_IRQHandler:  1:  j 1b
-USBHSWakeup_IRQHandler:  1:  j 1b
-USBHS_IRQHandler:  1:  j 1b
-DVP_IRQHandler:  1:  j 1b
-UART6_IRQHandler:  1:  j 1b
-UART7_IRQHandler:  1:  j 1b
-UART8_IRQHandler:  1:  j 1b
-TIM9_BRK_IRQHandler:  1:  j 1b
-TIM9_UP_IRQHandler:  1:  j 1b
-TIM9_TRG_COM_IRQHandler:  1:  j 1b
-TIM9_CC_IRQHandler:  1:  j 1b
-TIM10_BRK_IRQHandler:  1:  j 1b
-TIM10_UP_IRQHandler:  1:  j 1b
-TIM10_TRG_COM_IRQHandler:  1:  j 1b
-TIM10_CC_IRQHandler:  1:  j 1b
-DMA2_Channel6_IRQHandler:  1:  j 1b
-DMA2_Channel7_IRQHandler:  1:  j 1b
-DMA2_Channel8_IRQHandler:  1:  j 1b
-DMA2_Channel9_IRQHandler:  1:  j 1b
-DMA2_Channel10_IRQHandler:  1:  j 1b
-DMA2_Channel11_IRQHandler:  1:  j 1b
-
+NMI_Handler:
+HardFault_Handler:
+Ecall_M_Mode_Handler:
+Ecall_U_Mode_Handler:
+Break_Point_Handler:
+SysTick_Handler:
+SW_Handler:
+WWDG_IRQHandler:
+PVD_IRQHandler:
+TAMPER_IRQHandler:
+RTC_IRQHandler:
+FLASH_IRQHandler:
+RCC_IRQHandler:
+EXTI0_IRQHandler:
+EXTI1_IRQHandler:
+EXTI2_IRQHandler:
+EXTI3_IRQHandler:
+EXTI4_IRQHandler:
+DMA1_Channel1_IRQHandler:
+DMA1_Channel2_IRQHandler:
+DMA1_Channel3_IRQHandler:
+DMA1_Channel4_IRQHandler:
+DMA1_Channel5_IRQHandler:
+DMA1_Channel6_IRQHandler:
+DMA1_Channel7_IRQHandler:
+ADC1_2_IRQHandler:
+USB_HP_CAN1_TX_IRQHandler:
+USB_LP_CAN1_RX0_IRQHandler:
+CAN1_RX1_IRQHandler:
+CAN1_SCE_IRQHandler:
+EXTI9_5_IRQHandler:
+TIM1_BRK_IRQHandler:
+TIM1_UP_IRQHandler:
+TIM1_TRG_COM_IRQHandler:
+TIM1_CC_IRQHandler:
+TIM2_IRQHandler:
+TIM3_IRQHandler:
+TIM4_IRQHandler:
+I2C1_EV_IRQHandler:
+I2C1_ER_IRQHandler:
+I2C2_EV_IRQHandler:
+I2C2_ER_IRQHandler:
+SPI1_IRQHandler:
+SPI2_IRQHandler:
+USART1_IRQHandler:
+USART2_IRQHandler:
+USART3_IRQHandler:
+EXTI15_10_IRQHandler:
+RTCAlarm_IRQHandler:
+TIM8_BRK_IRQHandler:
+TIM8_UP_IRQHandler:
+TIM8_TRG_COM_IRQHandler:
+TIM8_CC_IRQHandler:
+RNG_IRQHandler:
+SDIO_IRQHandler:
+TIM5_IRQHandler:
+SPI3_IRQHandler:
+UART4_IRQHandler:
+UART5_IRQHandler:
+TIM6_IRQHandler:
+TIM7_IRQHandler:
+DMA2_Channel1_IRQHandler:
+DMA2_Channel2_IRQHandler:
+DMA2_Channel3_IRQHandler:
+DMA2_Channel4_IRQHandler:
+DMA2_Channel5_IRQHandler:
+USBFS_IRQHandler:
+UART6_IRQHandler:
+UART7_IRQHandler:
+UART8_IRQHandler:
+TIM9_BRK_IRQHandler:
+TIM9_UP_IRQHandler:
+TIM9_TRG_COM_IRQHandler:
+TIM9_CC_IRQHandler:
+TIM10_BRK_IRQHandler:
+TIM10_UP_IRQHandler:
+TIM10_TRG_COM_IRQHandler:
+TIM10_CC_IRQHandler:
+DMA2_Channel6_IRQHandler:
+DMA2_Channel7_IRQHandler:
+DMA2_Channel8_IRQHandler:
+DMA2_Channel9_IRQHandler:
+DMA2_Channel10_IRQHandler:
+DMA2_Channel11_IRQHandler:
+1:
+	j 1b
 
 	.section	.text.handle_reset,"ax",@progbits
 	.weak	handle_reset
 	.align	1
 handle_reset:
-.option push 
-.option	norelax 
-    csrw mepc, t0
+.option push
+.option	norelax
 	la gp, __global_pointer$
-.option	pop 
-1:
-	la sp, _eusrstack 
-2:
-	/* Load data section from flash to RAM */
+.option	pop
+
+	la sp, _eusrstack
+
+/* Load data section from flash to RAM */
 	la a0, _data_lma
 	la a1, _data_vma
 	la a2, _edata
@@ -354,7 +323,7 @@ handle_reset:
 	addi a1, a1, 4
 	bltu a1, a2, 1b
 2:
-	/* Clear bss section */
+/* Clear bss section */
 	la a0, _sbss
 	la a1, _ebss
 	bgeu a0, a1, 2f
@@ -363,24 +332,25 @@ handle_reset:
 	addi a0, a0, 4
 	bltu a0, a1, 1b
 2:
+/* Configure pipelining and instruction prediction */
     li t0, 0x1f
     csrw 0xbc0, t0
-
-    /* Enable nested and hardware stack */
-	li t0, 0x1f
+/* Enable interrupt nesting and hardware stack */
+	li t0, 0x0b
 	csrw 0x804, t0
-
-    /* Enable floating point and interrupt */
-   	li t0, 0x6088           
-   	csrs mstatus, t0
-
+/* Enable floating point and global interrupt, configure privileged mode */
+   	li t0, 0x6088
+   	csrw mstatus, t0
+/* Configure the interrupt vector table recognition mode and entry address mode */
  	la t0, _vector_base
-    ori t0, t0, 3           
+    ori t0, t0, 3
 	csrw mtvec, t0
 
     jal  SystemInit
 	la t0, main
 	csrw mepc, t0
 	mret
+
+
 
 
