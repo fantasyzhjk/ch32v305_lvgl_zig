@@ -129,7 +129,7 @@ fn buildEmbedded(b: *std.Build, optimize: std.builtin.OptimizeMode) void {
         .root_source_file = b.path("zig-src/main.zig"),
         .target = target,
         .optimize = optimize,
-        .strip = optimize != .Debug,
+        .strip = false,
     }), .use_lld = true });
 
     exe.entry = .{ .symbol_name = "_start" };

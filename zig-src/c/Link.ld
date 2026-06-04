@@ -30,8 +30,11 @@ SECTIONS
     .text :
     {
         . = ALIGN(4);
+        PROVIDE(_stext = .);
         *(.text)
         *(.text.*)
+        PROVIDE(_ecode = .);
+        PROVIDE(_sbacktrace = main);
         *(.rodata)
         *(.rodata*)
         *(.glue_7)
