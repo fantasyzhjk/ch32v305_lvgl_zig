@@ -2,7 +2,7 @@ const std = @import("std");
 const ch32 = @import("ch32.zig");
 const hal = ch32.hal;
 const c = ch32.c;
-const font = @import("font.zig");
+const font = @import("ui/font.zig");
 const interrupt = @import("interrupt.zig");
 
 pub const WIDTH: u16 = 240;
@@ -10,10 +10,10 @@ pub const HEIGHT: u16 = 240;
 
 const USE_HORIZONTAL: comptime_int = 0;
 
-pub const Color = @import("color.zig").Color;
+pub const Color = @import("ui/color.zig").Color565;
 
-pub var back_color: u16 = Color.BLACK;
-pub var fore_color: u16 = Color.WHITE;
+pub var back_color: u16 = Color.BLACK.toRgb565();
+pub var fore_color: u16 = Color.WHITE.toRgb565();
 
 // --- Interrupt State ---
 pub var dma_tc_flag: bool = true;

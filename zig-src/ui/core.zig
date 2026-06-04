@@ -1,0 +1,325 @@
+const std = @import("std");
+const lcd = @import("../lcd.zig");
+const Color = @import("color.zig").Color565;
+const canvas_mod = @import("canvas.zig");
+const types = @import("types.zig");
+
+const Canvas = canvas_mod.Canvas;
+const Rect = types.Rect;
+
+const dirty_max_areas = 16;
+const dirty_merge_slack = 1;
+const dirty_merge_waste_min = 64;
+const default_bg = Color.BLACK;
+
+pub const Node = struct {
+    area: Rect,
+    parent: ?*Node = null,
+    first_child: ?*Node = null,
+    last_child: ?*Node = null,
+    next: ?*Node = null,
+    prev: ?*Node = null,
+    display: ?*Display = null,
+    hidden: bool = false,
+    draw_cb: ?*const fn (node: *Node, canvas: *Canvas) void = null,
+
+    pub fn init(x: i32, y: i32, w: i32, h: i32) Node {
+        return .{
+            .area = Rect.init(x, y, w, h),
+        };
+    }
+
+    pub fn getAbsArea(self: *const Node) Rect {
+        var abs_area = self.area;
+        var p = self.parent;
+        while (p) |par| {
+            abs_area.x += par.area.x;
+            abs_area.y += par.area.y;
+            p = par.parent;
+        }
+        return abs_area;
+    }
+
+    fn setDisplayRecursive(self: *Node, display: ?*Display) void {
+        self.display = display;
+        var child = self.first_child;
+        while (child) |c| {
+            c.setDisplayRecursive(display);
+            child = c.next;
+        }
+    }
+
+    pub fn addChild(self: *Node, child: *Node) void {
+        if (child.parent) |old_parent| {
+            old_parent.removeChild(child);
+        }
+
+        child.parent = self;
+        child.next = null;
+        child.prev = self.last_child;
+        child.setDisplayRecursive(self.display);
+
+        if (self.last_child) |last| {
+            last.next = child;
+        } else {
+            self.first_child = child;
+        }
+        self.last_child = child;
+
+        child.invalidate();
+    }
+
+    pub fn removeChild(self: *Node, child: *Node) void {
+        if (child.parent != self) return;
+
+        const old_abs = child.getAbsArea();
+        if (child.prev) |p| p.next = child.next else self.first_child = child.next;
+        if (child.next) |n| n.prev = child.prev else self.last_child = child.prev;
+        child.parent = null;
+        child.next = null;
+        child.prev = null;
+        child.setDisplayRecursive(null);
+
+        if (self.display) |disp| {
+            disp.markDirty(old_abs);
+        } else if (Display.current) |disp| {
+            disp.markDirty(old_abs);
+        }
+    }
+
+    pub fn setPos(self: *Node, x: i32, y: i32) void {
+        if (self.area.x == x and self.area.y == y) return;
+        const old_abs = self.getAbsArea();
+        self.area.x = x;
+        self.area.y = y;
+        self.invalidateArea(old_abs);
+        self.invalidate();
+    }
+
+    pub fn setSize(self: *Node, w: i32, h: i32) void {
+        if (self.area.w == w and self.area.h == h) return;
+        const old_abs = self.getAbsArea();
+        self.area.w = w;
+        self.area.h = h;
+        self.invalidateArea(old_abs);
+        self.invalidate();
+    }
+
+    pub fn setHidden(self: *Node, hidden: bool) void {
+        if (self.hidden == hidden) return;
+        self.invalidate();
+        self.hidden = hidden;
+        self.invalidate();
+    }
+
+    pub fn invalidate(self: *Node) void {
+        self.invalidateArea(self.getAbsArea());
+    }
+
+    pub fn invalidateArea(self: *Node, abs_area: Rect) void {
+        if (self.display) |disp| {
+            disp.markDirty(abs_area);
+        } else if (Display.current) |disp| {
+            disp.markDirty(abs_area);
+        }
+    }
+};
+
+pub const Display = struct {
+    screen: Node,
+    dirty_areas: [dirty_max_areas]Rect = undefined,
+    dirty_count: usize = 0,
+    draw_buf: []u16,
+    allocator: std.mem.Allocator,
+
+    pub var current: ?*Display = null;
+
+    pub fn init(allocator: std.mem.Allocator, buffer_height: u32) !Display {
+        const buf_len = @as(usize, lcd.WIDTH) * buffer_height;
+        const buf = try allocator.alloc(u16, buf_len);
+
+        return .{
+            .screen = Node.init(0, 0, lcd.WIDTH, lcd.HEIGHT),
+            .draw_buf = buf,
+            .allocator = allocator,
+        };
+    }
+
+    pub fn deinit(self: *Display) void {
+        self.allocator.free(self.draw_buf);
+        if (current == self) current = null;
+    }
+
+    pub fn bind(self: *Display) void {
+        current = self;
+        self.screen.setDisplayRecursive(self);
+        self.markDirty(self.screen.area);
+    }
+
+    pub fn create(self: *Display, comptime T: type, args: anytype) !*T {
+        const item = try self.allocator.create(T);
+        item.* = @call(.auto, T.init, args);
+        item.asNode().setDisplayRecursive(self);
+        return item;
+    }
+
+    pub fn createNode(self: *Display, x: i32, y: i32, w: i32, h: i32, draw_cb: ?*const fn (node: *Node, canvas: *Canvas) void) !*Node {
+        const node = try self.allocator.create(Node);
+        node.* = Node.init(x, y, w, h);
+        node.display = self;
+        node.draw_cb = draw_cb;
+        return node;
+    }
+
+    pub fn screenAddChild(self: *Display, child: *Node) void {
+        self.screen.addChild(child);
+    }
+
+    pub fn markDirty(self: *Display, rect: Rect) void {
+        const bounded = Rect.intersect(rect, self.screen.area) orelse return;
+        if (bounded.isEmpty()) return;
+
+        if (bounded.containsRect(self.screen.area)) {
+            self.dirty_areas[0] = self.screen.area;
+            self.dirty_count = 1;
+            return;
+        }
+
+        var i: usize = 0;
+        while (i < self.dirty_count) : (i += 1) {
+            if (self.dirty_areas[i].containsRect(bounded)) return;
+            if (bounded.containsRect(self.dirty_areas[i])) {
+                self.dirty_areas[i] = bounded;
+                self.mergeDirtyAreas();
+                return;
+            }
+        }
+
+        if (self.dirty_count == self.dirty_areas.len) {
+            self.mergeDirtyAreas();
+            if (self.dirty_count == self.dirty_areas.len) self.mergeBestDirtyPair();
+        }
+
+        self.dirty_areas[self.dirty_count] = bounded;
+        self.dirty_count += 1;
+        self.mergeDirtyAreas();
+    }
+
+    fn shouldMergeDirty(a: Rect, b: Rect) bool {
+        if (Rect.intersect(a.expanded(dirty_merge_slack), b) != null) return true;
+
+        const merged = Rect.unionRect(a, b);
+        const sum_area = a.area() + b.area();
+        const waste = merged.area() - sum_area;
+        const allowed_waste = @max(dirty_merge_waste_min, @divTrunc(sum_area, 4));
+        return waste <= allowed_waste;
+    }
+
+    fn removeDirtyAt(self: *Display, index: usize) void {
+        if (index < self.dirty_count - 1) {
+            self.dirty_areas[index] = self.dirty_areas[self.dirty_count - 1];
+        }
+        self.dirty_count -= 1;
+    }
+
+    fn mergeBestDirtyPair(self: *Display) void {
+        if (self.dirty_count <= 1) return;
+
+        var best_i: usize = 0;
+        var best_j: usize = 1;
+        var best_cost: i32 = std.math.maxInt(i32);
+
+        var i: usize = 0;
+        while (i < self.dirty_count) : (i += 1) {
+            var j: usize = i + 1;
+            while (j < self.dirty_count) : (j += 1) {
+                const merged = Rect.unionRect(self.dirty_areas[i], self.dirty_areas[j]);
+                const cost = merged.area() - self.dirty_areas[i].area() - self.dirty_areas[j].area();
+                if (cost < best_cost) {
+                    best_cost = cost;
+                    best_i = i;
+                    best_j = j;
+                }
+            }
+        }
+
+        self.dirty_areas[best_i] = Rect.unionRect(self.dirty_areas[best_i], self.dirty_areas[best_j]);
+        self.removeDirtyAt(best_j);
+    }
+
+    pub fn mergeDirtyAreas(self: *Display) void {
+        if (self.dirty_count <= 1) return;
+
+        var changed = true;
+        while (changed) {
+            changed = false;
+            var i: usize = 0;
+            while (i < self.dirty_count) : (i += 1) {
+                var j: usize = i + 1;
+                while (j < self.dirty_count) : (j += 1) {
+                    if (shouldMergeDirty(self.dirty_areas[i], self.dirty_areas[j])) {
+                        self.dirty_areas[i] = Rect.unionRect(self.dirty_areas[i], self.dirty_areas[j]);
+                        self.removeDirtyAt(j);
+                        changed = true;
+                        break;
+                    }
+                }
+                if (changed) break;
+            }
+        }
+    }
+
+    pub fn render(self: *Display) void {
+        if (self.dirty_count == 0) return;
+
+        self.mergeDirtyAreas();
+
+        var i: usize = 0;
+        while (i < self.dirty_count) : (i += 1) {
+            const dirty = self.dirty_areas[i];
+            const chunk_h_max = @divTrunc(@as(i32, @intCast(self.draw_buf.len)), dirty.w);
+            if (chunk_h_max <= 0) continue;
+
+            var curr_y = dirty.y;
+            const end_y = dirty.y + dirty.h;
+
+            while (curr_y < end_y) {
+                const chunk_h = @min(chunk_h_max, end_y - curr_y);
+                const chunk_rect = Rect.init(dirty.x, curr_y, dirty.w, chunk_h);
+
+                lcd.waitDmaDone();
+
+                var canvas = Canvas.init(chunk_rect, self.draw_buf[0..@intCast(dirty.w * chunk_h)]);
+                canvas.fillRect(chunk_rect.x, chunk_rect.y, chunk_rect.w, chunk_rect.h, default_bg);
+
+                self.renderNodeRecursive(&self.screen, &canvas, chunk_rect);
+
+                canvas.flush();
+                curr_y += chunk_h;
+            }
+        }
+        self.dirty_count = 0;
+    }
+
+    fn renderNodeRecursive(self: *Display, node: *Node, canvas: *Canvas, clip_rect: Rect) void {
+        if (node.hidden) return;
+
+        const abs_area = node.getAbsArea();
+        if (Rect.intersect(abs_area, clip_rect)) |draw_clip| {
+            const old_clip = canvas.clip;
+
+            canvas.setClip(draw_clip);
+            if (node.draw_cb) |draw| {
+                draw(node, canvas);
+            }
+
+            var child = node.first_child;
+            while (child) |c| {
+                self.renderNodeRecursive(c, canvas, clip_rect);
+                child = c.next;
+            }
+
+            canvas.clip = old_clip;
+        }
+    }
+};
