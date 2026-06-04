@@ -97,6 +97,7 @@ pub fn build(b: *std.Build) void {
     });
 
     // deps.addLvgl(b, exe, c_flags);
+    deps.addTusb(b, exe, c_flags);
 
     const elf_install = b.addInstallBinFile(
         exe.getEmittedBin(),
