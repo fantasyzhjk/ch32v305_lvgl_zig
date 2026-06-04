@@ -54,7 +54,7 @@ pub export fn main() noreturn {
     var new_x: i32 = 40;
     var new_y: i32 = 50;
     var dvd_dx: i32 = 3;
-    var dvd_dy: i32 = 3;
+    var dvd_dy: i32 = 2;
     const dvd_w: u16 = 60;
     const dvd_h: u16 = 30;
 
