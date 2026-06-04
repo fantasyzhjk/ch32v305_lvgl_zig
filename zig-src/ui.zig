@@ -1,8 +1,7 @@
 const std = @import("std");
 const lcd = @import("lcd.zig");
 const font = @import("font.zig");
-const color_mod = @import("color.zig");
-const Color = color_mod.Color;
+const Color = @import("color.zig").Color565;
 
 pub const Rect = struct {
     x: i32,
@@ -337,7 +336,7 @@ pub const Display = struct {
     pub fn init(allocator: std.mem.Allocator, buffer_height: u32) !Display {
         const buf_len = @as(usize, lcd.WIDTH) * buffer_height;
         const buf = try allocator.alloc(u16, buf_len);
-        
+
         return Display{
             .screen = Node.init(0, 0, lcd.WIDTH, lcd.HEIGHT),
             .draw_buf = buf,
@@ -415,7 +414,7 @@ pub const Display = struct {
         var i: usize = 0;
         while (i < self.dirty_count) : (i += 1) {
             const dirty = self.dirty_areas[i];
-            
+
             const chunk_h_max = @divTrunc(@as(i32, @intCast(self.draw_buf.len)), dirty.w);
             if (chunk_h_max <= 0) continue;
 
@@ -425,7 +424,7 @@ pub const Display = struct {
             while (curr_y < end_y) {
                 const chunk_h = @min(chunk_h_max, end_y - curr_y);
                 const chunk_rect = Rect{ .x = dirty.x, .y = curr_y, .w = dirty.w, .h = chunk_h };
-                
+
                 // CRITICAL: Wait for previous DMA to finish before we start overwriting the shared draw_buf
                 lcd.waitDmaDone();
 
@@ -433,7 +432,7 @@ pub const Display = struct {
                 canvas.fillRect(chunk_rect.x, chunk_rect.y, chunk_rect.w, chunk_rect.h, Color.BLACK);
 
                 self.renderNodeRecursive(&self.screen, &canvas, chunk_rect);
-                
+
                 canvas.flush();
                 curr_y += chunk_h;
             }

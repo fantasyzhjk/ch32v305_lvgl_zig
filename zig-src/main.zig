@@ -8,8 +8,7 @@ const ui = @import("ui.zig");
 const interrupt = @import("interrupt.zig");
 const usb = @import("usb.zig");
 const tick = @import("tick.zig");
-const color_mod = @import("color.zig");
-const Color = color_mod.Color;
+const Color = @import("color.zig").Color565;
 
 fn initLedPin() void {
     var gpio: hal.GPIO_InitTypeDef = .{
@@ -138,6 +137,7 @@ pub export fn main() noreturn {
                 hal.GPIO_WriteBit(hal.GPIOA, hal.GPIO_Pin_3, if (led_on) hal.Bit_SET else hal.Bit_RESET);
 
                 dvd_color = if (dvd_dx > 0 and dvd_dy > 0) Color.BLUE else if (dvd_dx < 0 and dvd_dy > 0) Color.RED else if (dvd_dx > 0 and dvd_dy < 0) Color.MAGENTA else Color.CYAN;
+                debug.print("DVD hit! New direction: ({}, {}), Color: {}\r\n", .{ dvd_dx, dvd_dy, dvd_color });
             }
 
             dvd_node.setPos(new_x, new_y);
