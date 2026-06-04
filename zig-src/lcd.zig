@@ -214,7 +214,7 @@ fn initGpio() void {
     hal.RCC_APB2PeriphClockCmd(hal.RCC_APB2Periph_GPIOB, hal.ENABLE);
     hal.RCC_APB1PeriphClockCmd(hal.RCC_APB1Periph_SPI2, hal.ENABLE);
 
-    gpio.GPIO_Pin = hal.GPIO_Pin_10 | hal.GPIO_Pin_11 | hal.GPIO_Pin_12;
+    gpio.GPIO_Pin = hal.GPIO_Pin_9 | hal.GPIO_Pin_10 | hal.GPIO_Pin_11 | hal.GPIO_Pin_12;
     gpio.GPIO_Mode = hal.GPIO_Mode_Out_PP;
     gpio.GPIO_Speed = hal.GPIO_Speed_50MHz;
     hal.GPIO_Init(hal.GPIOB, &gpio);
