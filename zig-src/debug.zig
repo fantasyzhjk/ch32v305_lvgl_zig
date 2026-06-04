@@ -1,6 +1,7 @@
 const std = @import("std");
+const usb = @import("usb.zig");
 
-extern fn _write(fd: c_int, buf: [*]u8, size: c_int) c_int;
+// extern fn _write(fd: c_int, buf: [*]u8, size: c_int) c_int;
 
 pub fn print(
     comptime fmt: []const u8,
@@ -14,9 +15,11 @@ pub fn print(
         args,
     ) catch return;
 
-    _ = _write(
-        1,
-        @constCast(msg.ptr),
-        @intCast(msg.len),
-    );
+    usb.write(msg);
+
+    // _ = _write(
+    //     1,
+    //     @constCast(msg.ptr),
+    //     @intCast(msg.len),
+    // );
 }

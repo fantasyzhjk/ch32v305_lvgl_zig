@@ -45,3 +45,9 @@ __attribute__((used)) void HardFault_Handler_impl(void)
   {
   }
 }
+
+
+inline void EnableInterrupts(IRQn_Type IRQn)
+{
+  NVIC_EnableIRQ(IRQn);
+}

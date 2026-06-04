@@ -16,9 +16,8 @@ extern "C" {
 
 #include "ch32v30x.h"
 
-void USBHS_IRQHandler(void);
-void OTG_FS_IRQHandler(void);
 void SysTick_Handler(void);
+void EnableInterrupts(IRQn_Type IRQn);
 
 #ifdef __cplusplus
 }
