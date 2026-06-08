@@ -4,6 +4,11 @@ pub const Align = enum {
     right,
 };
 
+pub const Point = struct {
+    x: i32,
+    y: i32,
+};
+
 pub const Rect = struct {
     x: i32,
     y: i32,

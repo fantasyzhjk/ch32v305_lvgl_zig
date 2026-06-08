@@ -162,6 +162,15 @@ fn drawBox(node: *ui.Node, canvas: *ui.Canvas) void {
 
         canvas.drawLine(p1x, p1y, p2x, p2y, dvd_color);
     }
+
+    // 在前表面（顶点4-7）画 3D 透视文字
+    const quad = [4]ui.types.Point{
+        .{ .x = projected_points[4].x + abs.x, .y = projected_points[4].y + abs.y },
+        .{ .x = projected_points[5].x + abs.x, .y = projected_points[5].y + abs.y },
+        .{ .x = projected_points[6].x + abs.x, .y = projected_points[6].y + abs.y },
+        .{ .x = projected_points[7].x + abs.x, .y = projected_points[7].y + abs.y },
+    };
+    canvas.drawTextOnQuad(quad, "DVD", .px12, dvd_color);
 }
 
 fn parseFloat(buf: []const u8) ?struct { value: f32, consumed: u32 } {
@@ -269,35 +278,10 @@ pub export fn main() noreturn {
     }) catch unreachable;
 
     const dvd_group = display.addToScreen(ui.Container, .{
-        .area = ui.rect(40, 50, 60, 30),
+        .area = ui.rect(40, 50, 100, 100),
     }) catch unreachable;
     const dvd_node = dvd_group.asNode();
-
-    const dvd_panel = display.add(dvd_group, ui.Panel, .{
-        .area = ui.rect(0, 0, 60, 30),
-        .bg_color = dvd_color,
-        .border_color = Color.WHITE,
-    }) catch unreachable;
-
-    _ = display.add(dvd_group, ui.Line, .{
-        .area = ui.rect(0, 0, 60, 30),
-        .color = Color.YELLOW,
-    }) catch unreachable;
-
-    _ = display.add(dvd_group, ui.Line, .{
-        .area = ui.rect(0, 0, 60, 30),
-        .color = Color.GREEN,
-        .x1 = 59,
-        .x2 = 0,
-        .y2 = 29,
-    }) catch unreachable;
-
-    _ = display.add(dvd_group, ui.Label, .{
-        .area = ui.rect(0, 7, 60, 16),
-        .text = "DVD",
-        .text_align = .center,
-        .color = Color.WHITE,
-    }) catch unreachable;
+    dvd_node.draw_cb = drawBox;
 
     // 清屏
     lcd.fill(0, 0, lcd.WIDTH, lcd.HEIGHT, Color.BLACK.toRgb565());
@@ -331,6 +315,11 @@ pub export fn main() noreturn {
 
             title.setText(formatTitleText());
             title.step(-2);
+
+            // DVD 弹跳驱动 3D 旋转
+            const rot_speed: f32 = 1.5;
+            yaw += @as(f32, @floatFromInt(dvd_dx)) * rot_speed;
+            pitch += @as(f32, @floatFromInt(dvd_dy)) * rot_speed;
 
             var new_x = dvd_node.area.x + dvd_dx;
             var new_y = dvd_node.area.y + dvd_dy;
@@ -376,7 +365,7 @@ pub export fn main() noreturn {
                     dvd_color = Color.CYAN;
                 }
 
-                dvd_panel.setBgColor(dvd_color);
+                dvd_node.invalidate();
                 debug.print("DVD hit! New direction: ({}, {}), Color: {}\r\n", .{ dvd_dx, dvd_dy, dvd_color });
             }
 
