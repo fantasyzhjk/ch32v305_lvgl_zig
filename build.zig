@@ -129,6 +129,13 @@ pub fn build(b: *std.Build) void {
     const size_step = b.step("size", "Show ELF size");
     size_step.dependOn(&size_cmd.step);
 
+    const flash_cmd = b.addSystemCommand(&.{ "wchisp", "flash" });
+    flash_cmd.addFileArg(bin_install.source);
+    flash_cmd.step.dependOn(&size_cmd.step);
+    
+    const flash_step = b.step("flash", "Flash the binary to the device using wchisp");
+    flash_step.dependOn(&flash_cmd.step);
+    
     const bin_step = b.step("bin", "Build image");
     bin_step.dependOn(b.getInstallStep());
 }

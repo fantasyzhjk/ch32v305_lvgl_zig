@@ -34,15 +34,17 @@ pub fn init() Error!void {
     usb_app_init();
 }
 
-pub fn task() void {
+pub fn task() []const u8 {
     var buf: [64]u8 = undefined;
 
     const n = read(buf[0..]);
-    if (n != 0) {
-        write(buf[0..@intCast(n)]);
-    }
 
     usb_app_task();
+
+    if (n != 0) {
+        return buf[0..@intCast(n)];
+    }
+    return &.{};
 }
 
 pub fn write(data: []const u8) void {

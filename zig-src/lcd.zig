@@ -299,8 +299,14 @@ pub fn init() void {
     initGpio();
     initDma();
 
+    // 电源稳定延时（USB 插拔时电源/HSE 晶振需要时间）
+    c.Delay_Ms(200);
+
+    // 背光打开
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_11, hal.Bit_SET);
     c.Delay_Ms(100);
+
+    // 复位释放（GPIO 默认低电平，RST 已处于复位状态，拉高即释放）
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_9, hal.Bit_SET);
     c.Delay_Ms(100);
 
