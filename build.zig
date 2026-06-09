@@ -17,6 +17,7 @@ const peripheral_sources = [_][]const u8{
     "hal/Peripheral/src/ch32v30x_misc.c",
     "hal/Peripheral/src/ch32v30x_opa.c",
     "hal/Peripheral/src/ch32v30x_pwr.c",
+    "hal/Peripheral/src/ch32v30x_rng.c",
     "hal/Peripheral/src/ch32v30x_rcc.c",
     "hal/Peripheral/src/ch32v30x_rtc.c",
     "hal/Peripheral/src/ch32v30x_spi.c",

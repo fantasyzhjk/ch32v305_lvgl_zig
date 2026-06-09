@@ -4,11 +4,14 @@ pub const font = @import("font.zig");
 pub const canvas = @import("canvas.zig");
 pub const core = @import("core.zig");
 pub const widgets = @import("widgets.zig");
+pub const renderer3d = @import("renderer3d.zig");
 
 pub const Align = types.Align;
 pub const FontSize = types.FontSize;
 pub const FontMetrics = types.FontMetrics;
 pub const Rect = types.Rect;
+pub const Point3D = types.Point3D;
+pub const TexVertex = types.TexVertex;
 pub const fontMetrics = types.fontMetrics;
 pub const rect = types.rect;
 pub const textSize = types.textSize;
@@ -18,6 +21,8 @@ pub const Color565 = color.Color565;
 pub const Color888 = color.Color888;
 
 pub const Canvas = canvas.Canvas;
+
+pub const Renderer3D = renderer3d.Renderer3D;
 
 pub const Display = core.Display;
 pub const Node = core.Node;

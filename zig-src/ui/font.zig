@@ -291,3 +291,27 @@ pub const asc2_2412: [95][36]u8 = .{
     .{ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x02, 0x30, 0x00, 0x06, 0x1F, 0xF7, 0xFC, 0x00, 0x14, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }, // "}",93
     .{ 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x60, 0x00, 0x00, 0x40, 0x00, 0x00, 0x40, 0x00, 0x00, 0x20, 0x00, 0x00, 0x10, 0x00, 0x00, 0x08, 0x00, 0x00, 0x04, 0x00, 0x00, 0x04, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x10, 0x00, 0x00 }, // "~",94
 };
+
+const types = @import("types.zig");
+const FontSize = types.FontSize;
+
+pub fn glyphLit(font_size: FontSize, ch: u8, col: i32, row: i32) bool {
+    if (ch < 0x20 or ch > 0x7e or col < 0 or row < 0) return false;
+    const m = font_size.metrics();
+    if (col >= m.w or row >= m.h) return false;
+
+    const idx: usize = @intCast(ch - 0x20);
+    const c: usize = @intCast(col);
+    const val: u32 = switch (font_size) {
+        .px12 => (@as(u32, asc2_1206[idx][c * 2]) << 8) | @as(u32, asc2_1206[idx][c * 2 + 1]),
+        .px16 => (@as(u32, asc2_1608[idx][c * 2]) << 8) | @as(u32, asc2_1608[idx][c * 2 + 1]),
+        .px24 => (@as(u32, asc2_2412[idx][c * 3]) << 16) | (@as(u32, asc2_2412[idx][c * 3 + 1]) << 8) | @as(u32, asc2_2412[idx][c * 3 + 2]),
+    };
+    const total_bits: u32 = switch (font_size) {
+        .px12 => 16,
+        .px16 => 16,
+        .px24 => 24,
+    };
+    const bit_pos: u5 = @intCast(total_bits - 1 - @as(u32, @intCast(row)));
+    return ((val >> bit_pos) & 1) != 0;
+}

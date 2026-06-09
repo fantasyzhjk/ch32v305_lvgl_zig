@@ -9,6 +9,21 @@ pub const Point = struct {
     y: i32,
 };
 
+pub const Point3D = struct {
+    x: f32,
+    y: f32,
+    z: f32,
+};
+
+/// 屏幕空间顶点：屏幕坐标 (x, y) + 深度 z + 纹理坐标 (u, v)
+pub const TexVertex = struct {
+    x: f32,
+    y: f32,
+    z: f32,
+    u: f32,
+    v: f32,
+};
+
 pub const Rect = struct {
     x: i32,
     y: i32,
