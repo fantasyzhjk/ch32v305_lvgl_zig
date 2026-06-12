@@ -60,7 +60,7 @@ pub fn autoGenEdges(comptime vertices: []const Point3D, comptime max_dist: f32) 
 }
 
 /// 硬件随机数范围 [min, max]
-pub fn hwRandRange(min: i32, max: i32) i32 {
+pub fn randRange(min: i32, max: i32) i32 {
     const r = hal.RNG_GetRandomNumber();
     return min + @as(i32, @intCast(r % @as(u32, @intCast(max - min + 1))));
 }
@@ -75,13 +75,16 @@ pub fn lerpColor(a: Color, b: Color, t: f32) Color {
     const br: f32 = @floatFromInt((b565 >> 11) & 0x1F);
     const bg: f32 = @floatFromInt((b565 >> 5) & 0x3F);
     const bb: f32 = @floatFromInt(b565 & 0x1F);
-    const r: u16 = @intFromFloat(lerp(ar, br, t));
-    const g: u16 = @intFromFloat(lerp(ag, bg, t));
-    const bl: u16 = @intFromFloat(lerp(ab, bb, t));
+    const r: u16 = @intFromFloat(lerp(f32, ar, br, t));
+    const g: u16 = @intFromFloat(lerp(f32, ag, bg, t));
+    const bl: u16 = @intFromFloat(lerp(f32, ab, bb, t));
     return .{ .data = (r << 11) | (g << 5) | bl };
 }
 
-/// 浮点线性插值
-pub fn lerp(a: f32, b: f32, t: f32) f32 {
-    return a + (b - a) * t;
+pub fn lerp(comptime T: type, a: T, b: T, t: f32) T {
+    return switch (@typeInfo(T)) {
+        .float => @mulAdd(T, b - a, @floatCast(t), a),
+        .int => @intFromFloat(@mulAdd(f32, @floatFromInt(b - a), t, @floatFromInt(a))),
+        else => @compileError("Unsupported type"),
+    };
 }

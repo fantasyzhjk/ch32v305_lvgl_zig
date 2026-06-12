@@ -40,7 +40,7 @@ const c_sources = [_][]const u8{
 pub fn build(b: *std.Build) void {
     const target = b.resolveTargetQuery(std.Build.parseTargetQuery(.{
         .arch_os_abi = "riscv32-freestanding-none",
-        .cpu_features = "generic_rv32+a+c+m+xwchc",
+        .cpu_features = "generic_rv32+a+c+m+f+xwchc",
     }) catch @panic("invalid target query"));
 
     const optimize = b.option(std.builtin.OptimizeMode, "optimize", "Optimization mode") orelse .ReleaseSmall;
@@ -133,10 +133,10 @@ pub fn build(b: *std.Build) void {
     const flash_cmd = b.addSystemCommand(&.{ "wchisp", "flash" });
     flash_cmd.addFileArg(bin_install.source);
     flash_cmd.step.dependOn(&size_cmd.step);
-    
+
     const flash_step = b.step("flash", "Flash the binary to the device using wchisp");
     flash_step.dependOn(&flash_cmd.step);
-    
+
     const bin_step = b.step("bin", "Build image");
     bin_step.dependOn(b.getInstallStep());
 }

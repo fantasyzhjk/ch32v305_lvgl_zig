@@ -38,7 +38,6 @@ var cmd_len: u32 = 0;
 const cube_vertices = utils.createCubeVertices(20);
 const cube_edges = utils.autoGenEdges(&cube_vertices, 20.5);
 
-var renderer: *ui.Renderer3D = undefined;
 var pv: [8]ui.TexVertex = undefined;
 
 fn drawScene(r: *ui.Renderer3D, canvas: *ui.Canvas) void {
@@ -178,7 +177,7 @@ pub export fn main() noreturn {
     var display = ui.Display.init(gpa, 24) catch unreachable;
     display.bind();
 
-    const title = display.addToScreen(ui.MarqueeLabel, .{
+    const title = display.addToScreen(ui.widgets.MarqueeLabel, .{
         .area = ui.rect(0, 0, lcd.WIDTH, 20),
         .text = formatTitleText(gpa),
         .bg_color = Color.WHITE,
@@ -187,11 +186,19 @@ pub export fn main() noreturn {
         .offset = lcd.WIDTH,
     }) catch unreachable;
 
-    renderer = display.addToScreen(ui.Renderer3D, .{
+    var renderer = display.addToScreen(ui.Renderer3D, .{
         .area = ui.rect(20, 20, 120, 120),
     }) catch unreachable;
     renderer.user_draw = drawScene;
     const dvd_node = renderer.asNode();
+
+    const items: [4]ui.widgets.List.Item = .{
+        .{ .tag = "hello", .discption = null, .ref = null },
+        .{ .tag = "hello2", .discption = null, .ref = null },
+        .{ .tag = "hello3", .discption = null, .ref = null },
+        .{ .tag = "hello4", .discption = null, .ref = null },
+    };
+    const list = display.addToScreen(ui.widgets.List, .{ .area = ui.rect(20, 40, 60, 120), .items = &items }) catch unreachable;
 
     // 清屏
     lcd.fill(0, 0, lcd.WIDTH, lcd.HEIGHT, Color.BLACK.toRgb565());
@@ -224,8 +231,8 @@ pub export fn main() noreturn {
             title.step(-2);
 
             // 旋转 lerp 动画
-            renderer.yaw = utils.lerp(renderer.yaw, target_yaw, decay);
-            renderer.pitch = utils.lerp(renderer.pitch, target_pitch, decay);
+            renderer.yaw = utils.lerp(f32, renderer.yaw, target_yaw, decay);
+            renderer.pitch = utils.lerp(f32, renderer.pitch, target_pitch, decay);
 
             // 颜色 lerp 动画
             if (dvd_color.toRgb565() != target_color.toRgb565()) {
@@ -243,24 +250,24 @@ pub export fn main() noreturn {
             if (new_x <= 0) {
                 new_x = 0;
                 dvd_dx = -dvd_dx;
-                target_yaw += @as(f32, @floatFromInt(utils.hwRandRange(20, 60)));
+                target_yaw += @as(f32, @floatFromInt(utils.randRange(20, 60)));
                 hit = true;
             } else if (new_x + dvd_node.area.w >= lcd.WIDTH) {
                 new_x = lcd.WIDTH - dvd_node.area.w;
                 dvd_dx = -dvd_dx;
-                target_yaw -= @as(f32, @floatFromInt(utils.hwRandRange(20, 60)));
+                target_yaw -= @as(f32, @floatFromInt(utils.randRange(20, 60)));
                 hit = true;
             }
 
             if (new_y <= min_y) {
                 new_y = min_y;
                 dvd_dy = -dvd_dy;
-                target_pitch += @as(f32, @floatFromInt(utils.hwRandRange(20, 60)));
+                target_pitch += @as(f32, @floatFromInt(utils.randRange(20, 60)));
                 hit = true;
             } else if (new_y + dvd_node.area.h >= lcd.HEIGHT) {
                 new_y = lcd.HEIGHT - dvd_node.area.h;
                 dvd_dy = -dvd_dy;
-                target_pitch -= @as(f32, @floatFromInt(utils.hwRandRange(20, 60)));
+                target_pitch -= @as(f32, @floatFromInt(utils.randRange(20, 60)));
                 hit = true;
             }
 
@@ -282,10 +289,13 @@ pub export fn main() noreturn {
                     target_color = Color.CYAN;
                 }
                 debug.print("DVD hit! New direction: ({}, {}), Color: {}\r\n", .{ dvd_dx, dvd_dy, dvd_color });
+                list.select(@intCast(utils.randRange(0, 3)));
+                // list.select(3);
             }
 
             // 应用新坐标，投影+包围盒+脏区域，然后渲染
             dvd_node.setPos(new_x, new_y);
+            list.update();
             renderer.updateDirty(&cube_vertices, &pv);
             display.render();
         }

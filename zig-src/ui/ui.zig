@@ -3,7 +3,7 @@ pub const color = @import("color.zig");
 pub const font = @import("font.zig");
 pub const canvas = @import("canvas.zig");
 pub const core = @import("core.zig");
-pub const widgets = @import("widgets.zig");
+pub const widgets = @import("widgets/core.zig");
 pub const renderer3d = @import("renderer3d.zig");
 
 pub const Align = types.Align;
@@ -26,12 +26,3 @@ pub const Renderer3D = renderer3d.Renderer3D;
 
 pub const Display = core.Display;
 pub const Node = core.Node;
-
-pub const Box = widgets.Box;
-pub const Button = widgets.Button;
-pub const Container = widgets.Container;
-pub const Image = widgets.Image;
-pub const Label = widgets.Label;
-pub const Line = widgets.Line;
-pub const MarqueeLabel = widgets.MarqueeLabel;
-pub const Panel = widgets.Panel;
