@@ -233,7 +233,7 @@ pub const Canvas = struct {
     }
 
     pub fn flush(self: *Canvas) void {
-        lcd.flushPixels(
+        lcd.flushAsync(
             @intCast(self.area.x),
             @intCast(self.area.y),
             @intCast(self.area.x + self.area.w - 1),

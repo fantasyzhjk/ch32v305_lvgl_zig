@@ -12,8 +12,8 @@ const utils = @import("utils.zig");
 const Color = ui.Color565;
 
 // Global memory pool for ALL UI objects (Display, DrawBuf, Nodes)
-// Increased pool size to accommodate the draw buffer (~12KB) + nodes
-var ui_pool: [16 * 1024]u8 = undefined;
+// 24KB pool: double-buffer (~15KB) + nodes + overhead
+var ui_pool: [24 * 1024]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&ui_pool);
 
 var dvd_dx: i32 = 3;
@@ -174,7 +174,7 @@ pub export fn main() noreturn {
     debug.print("hello from zig DVD tree-ui animation\r\n", .{});
     debug.print("USB rotation control: send Y<yaw>,P<pitch>\\n\r\n", .{});
 
-    var display = ui.Display.init(gpa, 24) catch unreachable;
+    var display = ui.Display.init(gpa, 16) catch unreachable;
     display.bind();
 
     const title = display.addToScreen(ui.widgets.MarqueeLabel, .{

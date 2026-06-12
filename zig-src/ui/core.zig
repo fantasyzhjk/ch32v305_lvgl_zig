@@ -129,18 +129,22 @@ pub const Display = struct {
     screen: Node,
     dirty_areas: [dirty_max_areas]Rect = undefined,
     dirty_count: usize = 0,
-    draw_buf: []u16,
+    draw_buf: []u16, // double-sized: 2 * WIDTH * buffer_height
+    buffer_height: u32, // chunk height (half of draw_buf rows)
     allocator: std.mem.Allocator,
+
+    active_buf: u1 = 0,
 
     pub var current: ?*Display = null;
 
     pub fn init(allocator: std.mem.Allocator, buffer_height: u32) !Display {
-        const buf_len = @as(usize, lcd.WIDTH) * buffer_height;
+        const buf_len = @as(usize, lcd.WIDTH) * buffer_height * 2; // double buffer
         const buf = try allocator.alloc(u16, buf_len);
 
         return .{
             .screen = Node.init(0, 0, lcd.WIDTH, lcd.HEIGHT),
             .draw_buf = buf,
+            .buffer_height = buffer_height,
             .allocator = allocator,
         };
     }
@@ -148,6 +152,11 @@ pub const Display = struct {
     pub fn deinit(self: *Display) void {
         self.allocator.free(self.draw_buf);
         if (current == self) current = null;
+    }
+
+    fn activeBuf(self: *Display) []u16 {
+        const len = @as(usize, lcd.WIDTH) * self.buffer_height;
+        return self.draw_buf[self.active_buf *% len ..][0..len];
     }
 
     pub fn bind(self: *Display) void {
@@ -288,10 +297,12 @@ pub const Display = struct {
 
         self.mergeDirtyAreas();
 
+        const chunk_h_max = @as(i32, @intCast(self.buffer_height));
+        const buf_len = @as(usize, @intCast(chunk_h_max)) * lcd.WIDTH;
+
         var i: usize = 0;
         while (i < self.dirty_count) : (i += 1) {
             const dirty = self.dirty_areas[i];
-            const chunk_h_max = @divTrunc(@as(i32, @intCast(self.draw_buf.len)), dirty.w);
             if (chunk_h_max <= 0) continue;
 
             var curr_y = dirty.y;
@@ -301,14 +312,15 @@ pub const Display = struct {
                 const chunk_h = @min(chunk_h_max, end_y - curr_y);
                 const chunk_rect = Rect.init(dirty.x, curr_y, dirty.w, chunk_h);
 
-                lcd.waitDmaDone();
-
-                var canvas = Canvas.init(chunk_rect, self.draw_buf[0..@intCast(dirty.w * chunk_h)]);
+                // CPU renders while previous DMA is still transferring
+                var canvas = Canvas.init(chunk_rect, self.activeBuf()[0..buf_len]);
                 canvas.fillRect(chunk_rect.x, chunk_rect.y, chunk_rect.w, chunk_rect.h, default_bg);
-
                 self.renderNodeRecursive(&self.screen, &canvas, chunk_rect);
 
+                lcd.waitDmaDone();
                 canvas.flush();
+
+                self.active_buf +%= 1;
                 curr_y += chunk_h;
             }
         }

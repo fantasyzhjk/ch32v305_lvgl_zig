@@ -141,13 +141,14 @@ pub fn fill(xsta: u16, ysta: u16, xend: u16, yend: u16, color: u16) void {
         waitDmaDone();
     }
 
-    // Restore DMA for next writePixels (auto-cleanup doesn't know about MINC)
+    // Restore MINC for flushAsync (fill disables it to repeat same color)
     hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
     hal.DMA1_Channel5.*.CFGR |= hal.DMA_MemoryInc_Enable;
 }
 
-pub fn writePixels(pixels: [*]const u16, count: u32) void {
-    waitDmaDone();
+pub fn flushAsync(x1: u16, y1: u16, x2: u16, y2: u16, pixels: [*]const u16) void {
+    const count: u32 = @as(u32, x2 - x1 + 1) * @as(u32, y2 - y1 + 1);
+    addressSet(x1, y1, x2, y2);
 
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
 
@@ -155,38 +156,17 @@ pub fn writePixels(pixels: [*]const u16, count: u32) void {
     hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_16b);
     hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
 
-    var remaining = count;
-    var current_ptr = pixels;
+    @as(*volatile bool, &dma_tc_flag).* = false;
+    @as(*volatile bool, &dma_auto_cleanup).* = true;
 
-    while (remaining > 0) {
-        const chunk_size: u16 = if (remaining > 65535) 65535 else @intCast(remaining);
+    hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
+    while ((hal.DMA1_Channel5.*.CFGR & 1) != 0) {}
+    hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
 
-        @as(*volatile bool, &dma_tc_flag).* = false;
-        @as(*volatile bool, &dma_auto_cleanup).* = (remaining <= chunk_size);
-
-        hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
-        while ((hal.DMA1_Channel5.*.CFGR & 1) != 0) {}
-        hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
-
-        hal.DMA1_Channel5.*.MADDR = @intFromPtr(current_ptr);
-        hal.DMA1_Channel5.*.CNTR = chunk_size;
-
-        hal.DMA_Cmd(hal.DMA1_Channel5, hal.ENABLE);
-
-        remaining -= chunk_size;
-        current_ptr += chunk_size;
-
-        if (remaining > 0) {
-            waitDmaDone();
-        }
-    }
-}
-
-pub fn flushPixels(x1: u16, y1: u16, x2: u16, y2: u16, pixels: [*]const u16) void {
-    const count: u32 = @as(u32, x2 - x1 + 1) * @as(u32, y2 - y1 + 1);
-    waitDmaDone();
-    addressSet(x1, y1, x2, y2);
-    writePixels(pixels, count);
+    hal.DMA1_Channel5.*.CFGR |= hal.DMA_MemoryInc_Enable;
+    hal.DMA1_Channel5.*.MADDR = @intFromPtr(pixels);
+    hal.DMA1_Channel5.*.CNTR = count;
+    hal.DMA_Cmd(hal.DMA1_Channel5, hal.ENABLE);
 }
 
 fn initGpio() void {
