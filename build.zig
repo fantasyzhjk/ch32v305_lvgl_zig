@@ -1,5 +1,6 @@
 const std = @import("std");
 const deps = @import("deps/build.zig");
+const zcc = @import("compile_commands");
 
 const peripheral_sources = [_][]const u8{
     "hal/Peripheral/src/ch32v30x_adc.c",
@@ -139,4 +140,8 @@ pub fn build(b: *std.Build) void {
 
     const bin_step = b.step("bin", "Build image");
     bin_step.dependOn(b.getInstallStep());
+
+    const targets = b.allocator.alloc(*std.Build.Step.Compile, 1) catch @panic("OOM");
+    targets[0] = exe;
+    _ = zcc.createStep(b, "cdb", targets);
 }

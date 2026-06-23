@@ -1,0 +1,17 @@
+.{
+    .name = .ch32v30_demo,
+    .version = "0.0.0",
+    .dependencies = .{
+        .compile_commands = .{
+            .url = "https://github.com/the-argus/zig-compile-commands/archive/9400cd1963ea6bb58fe47ba7d9700075b808cdd2.tar.gz",
+            .hash = "zig_compile_commands-0.0.1-OZg5-e_JAAAGg1WHAePtq4l4Uvjs34BexnFFCZk63EaG",
+        },
+    },
+    .fingerprint = 0xf786a656cc686322,
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "zig-src",
+        "hal",
+    },
+}

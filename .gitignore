@@ -3,4 +3,7 @@
 .zig-global-cache/
 obj/
 zig-out/
+zig-pkg/
 LCD_LVGL/
+compile_commands.json
+UsbTreeView.ini
