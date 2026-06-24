@@ -7,3 +7,4 @@ zig-pkg/
 LCD_LVGL/
 compile_commands.json
 UsbTreeView.ini
+deps/sdl2

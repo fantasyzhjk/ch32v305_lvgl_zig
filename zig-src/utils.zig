@@ -1,11 +1,13 @@
 const ui = @import("ui/ui.zig");
-const ch32 = @import("ch32.zig");
-const hal = ch32.hal;
+const platform = @import("platform.zig");
+const rand = if (platform.is_embedded) @import("platform/rand_embedded.zig") else @import("platform/rand_native.zig");
 
 const Point3D = ui.Point3D;
 const Color = ui.Color565;
 
 pub const Edge = [2]usize;
+
+pub const randRange = rand.randRange;
 
 /// 生成正方体顶点
 pub fn createCubeVertices(comptime size: f32) [8]Point3D {
@@ -57,12 +59,6 @@ pub fn autoGenEdges(comptime vertices: []const Point3D, comptime max_dist: f32) 
 
     const final_edges = edges;
     return &final_edges;
-}
-
-/// 硬件随机数范围 [min, max]
-pub fn randRange(min: i32, max: i32) i32 {
-    const r = hal.RNG_GetRandomNumber();
-    return min + @as(i32, @intCast(r % @as(u32, @intCast(max - min + 1))));
 }
 
 /// RGB565 颜色线性插值

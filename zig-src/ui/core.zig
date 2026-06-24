@@ -325,6 +325,7 @@ pub const Display = struct {
             }
         }
         self.dirty_count = 0;
+        lcd.present();
     }
 
     fn renderNodeRecursive(self: *Display, node: *Node, canvas: *Canvas, clip_rect: Rect) void {

@@ -39,12 +39,57 @@ const c_sources = [_][]const u8{
 };
 
 pub fn build(b: *std.Build) void {
+    const sim = b.option(bool, "sim", "Build native SDL2 simulation") orelse false;
+
+    const optimize = b.option(std.builtin.OptimizeMode, "optimize", "Optimization mode") orelse .ReleaseSmall;
+
+    if (sim) {
+        buildSim(b, optimize);
+    } else {
+        buildEmbedded(b, optimize);
+    }
+}
+
+fn buildSim(b: *std.Build, optimize: std.builtin.OptimizeMode) void {
+    const target = b.standardTargetOptions(.{});
+
+    const exe = b.addExecutable(.{
+        .name = "lcd-sim",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("zig-src/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+
+    // SDL2 setup: use the vendored development libraries (dynamic linking via import lib)
+    const sdl2_base = "deps/sdl2/SDL2-2.30.12/x86_64-w64-mingw32";
+    exe.root_module.addIncludePath(b.path(sdl2_base ++ "/include"));
+    exe.root_module.addObjectFile(b.path(sdl2_base ++ "/lib/libSDL2.dll.a"));
+    exe.root_module.link_libc = true;
+
+    // Install SDL2.dll alongside the executable
+    const install_dll = b.addInstallBinFile(
+        b.path(sdl2_base ++ "/bin/SDL2.dll"),
+        "SDL2.dll",
+    );
+    exe.step.dependOn(&install_dll.step);
+
+    const install = b.addInstallArtifact(exe, .{});
+    b.getInstallStep().dependOn(&install.step);
+
+    const run = b.addRunArtifact(exe);
+    run.step.dependOn(b.getInstallStep());
+
+    const run_step = b.step("sim", "Run the SDL2 LCD simulation");
+    run_step.dependOn(&run.step);
+}
+
+fn buildEmbedded(b: *std.Build, optimize: std.builtin.OptimizeMode) void {
     const target = b.resolveTargetQuery(std.Build.parseTargetQuery(.{
         .arch_os_abi = "riscv32-freestanding-none",
         .cpu_features = "generic_rv32+a+c+m+f+xwchc",
     }) catch @panic("invalid target query"));
-
-    const optimize = b.option(std.builtin.OptimizeMode, "optimize", "Optimization mode") orelse .ReleaseSmall;
 
     const base_c_flags = [_][]const u8{
         "-std=gnu99",
@@ -100,9 +145,6 @@ pub fn build(b: *std.Build) void {
         .files = &c_sources,
         .flags = c_flags,
     });
-
-    // const lvgl_lib = deps.addLvgl(b, target, optimize, c_flags);
-    // exe.root_module.linkLibrary(lvgl_lib);
 
     const tusb_lib = deps.addTusb(b, target, optimize, c_flags);
     exe.root_module.linkLibrary(tusb_lib);
