@@ -1,6 +1,7 @@
 //! SDL2-based LCD simulation backend.
 //! Provides the same public API as lcd_embedded.zig but renders to an SDL2 window.
 
+const std = @import("std");
 const c = @cImport({
     @cInclude("SDL2/SDL.h");
 });
@@ -17,6 +18,7 @@ const WIN_HEIGHT: u32 = HEIGHT * SCALE;
 var window: ?*c.SDL_Window = null;
 var renderer: ?*c.SDL_Renderer = null;
 var texture: ?*c.SDL_Texture = null;
+var initialized: bool = false;
 
 var fb: [WIDTH * HEIGHT]u16 = undefined;
 
@@ -50,9 +52,11 @@ pub fn init() void {
     @memset(&fb, 0);
     _ = c.SDL_SetRelativeMouseMode(c.SDL_TRUE);
     presentImpl();
+    initialized = true;
 }
 
 pub fn deinit() void {
+    initialized = false;
     if (texture) |t| c.SDL_DestroyTexture(t);
     if (renderer) |r| c.SDL_DestroyRenderer(r);
     if (window) |w| c.SDL_DestroyWindow(w);
@@ -100,4 +104,37 @@ fn presentImpl() void {
     _ = c.SDL_RenderClear(renderer);
     _ = c.SDL_RenderCopy(renderer, texture, null, null);
     c.SDL_RenderPresent(renderer);
+}
+
+pub fn panicBegin() bool {
+    if (!initialized) return false;
+    _ = c.SDL_SetRelativeMouseMode(c.SDL_FALSE);
+    return true;
+}
+
+pub fn panicFill(x: u16, y: u16, w: u16, h: u16, color: u16) void {
+    fill(x, y, x + w, y + h, color);
+}
+
+pub fn panicPresent() void {
+    if (initialized) presentImpl();
+}
+
+pub fn panicHalt() noreturn {
+    if (!initialized) std.process.exit(1);
+
+    var event: c.SDL_Event = undefined;
+    while (true) {
+        if (c.SDL_WaitEvent(&event) == 0) {
+            c.SDL_Delay(10);
+            continue;
+        }
+
+        if (event.type == c.SDL_QUIT or
+            (event.type == c.SDL_KEYDOWN and event.key.keysym.sym == c.SDLK_ESCAPE))
+        {
+            deinit();
+            std.process.exit(1);
+        }
+    }
 }

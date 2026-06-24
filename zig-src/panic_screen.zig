@@ -1,285 +1,289 @@
 const std = @import("std");
 const lcd = @import("lcd.zig");
-const Canvas = @import("ui/canvas.zig").Canvas;
+const font = @import("ui/font.zig");
 const Color = @import("ui/color.zig").Color565;
-const types = @import("ui/types.zig");
+const FontSize = @import("ui/types.zig").FontSize;
 
-const font_size: types.FontSize = .px12;
-const metrics = types.fontMetrics(font_size);
-const max_cols: usize = @divTrunc(@as(usize, lcd.WIDTH), @as(usize, @intCast(metrics.w)));
-const max_rows: usize = @divTrunc(@as(usize, lcd.HEIGHT), @as(usize, @intCast(metrics.h)));
-const line_pixels: usize = @as(usize, lcd.WIDTH) * @as(usize, @intCast(metrics.h));
-const title_size: types.FontSize = .px24;
-const title_metrics = types.fontMetrics(title_size);
-const blue_screen_bg = Color.fromRgb(0x00, 0x78, 0xD7);
-const max_backtrace_entries = 5;
+const background = Color.fromRgb(0x00, 0x78, 0xD7).toRgb565();
+const foreground = Color.WHITE.toRgb565();
 
-var line_buf: [line_pixels]u16 = undefined;
+const margin_x: i32 = 12;
+const reason_y: i32 = 96;
+const reason_cols: usize = 36;
+const reason_rows: usize = 7;
+
 var active: bool = false;
 
-extern var _stext: u8;
-extern var _ecode: u8;
-extern var _sbacktrace: u8;
-extern var _susrstack: u8;
-extern var _eusrstack: u8;
+/// Zig 0.16 panic namespace. This intentionally mirrors std.debug.simple_panic
+/// while routing every failure through the LCD panic screen.
+pub const Panic = struct {
+    pub const call = panicCall;
 
-fn drawTextLine(y: i32, text: []const u8, text_size: types.FontSize, fg: Color, bg: Color) void {
-    if (y < 0 or y + metrics.h > lcd.HEIGHT) return;
-    var canvas = Canvas.init(
-        types.Rect.init(0, y, lcd.WIDTH, metrics.h),
-        line_buf[0..],
-    );
-
-    canvas.fillRect(0, y, lcd.WIDTH, metrics.h, bg);
-    canvas.showString(0, y, text_size, text, fg, bg);
-    lcd.flushPixelsBlocking(
-        0,
-        @intCast(y),
-        lcd.WIDTH - 1,
-        @intCast(y + metrics.h - 1),
-        line_buf[0..].ptr,
-    );
-}
-
-fn drawLine(row: usize, text: []const u8, fg: Color, bg: Color) void {
-    if (row >= max_rows) return;
-    drawTextLine(@as(i32, @intCast(row)) * metrics.h, text, font_size, fg, bg);
-}
-
-fn drawEllipsisLine(y: i32, text: []const u8, fg: Color, bg: Color) void {
-    var buf: [max_cols]u8 = undefined;
-    const n = if (max_cols > 3) @min(text.len, max_cols - 3) else 0;
-    @memcpy(buf[0..n], text[0..n]);
-    @memcpy(buf[n .. n + 3], "...");
-    drawTextLine(y, buf[0 .. n + 3], font_size, fg, bg);
-}
-
-fn drawTitle(y: i32, text: []const u8, fg: Color, bg: Color) void {
-    var line: i32 = 0;
-    while (line < title_metrics.h) : (line += metrics.h) {
-        const curr_y = y + line;
-        var canvas = Canvas.init(
-            types.Rect.init(0, curr_y, lcd.WIDTH, metrics.h),
-            line_buf[0..],
-        );
-
-        canvas.fillRect(0, curr_y, lcd.WIDTH, metrics.h, bg);
-        canvas.showString(0, y, title_size, text, fg, bg);
-        lcd.flushPixelsBlocking(
-            0,
-            @intCast(curr_y),
-            lcd.WIDTH - 1,
-            @intCast(curr_y + metrics.h - 1),
-            line_buf[0..].ptr,
-        );
+    pub fn sentinelMismatch(expected: anytype, found: @TypeOf(expected)) noreturn {
+        _ = found;
+        panicCall("sentinel mismatch", @returnAddress());
     }
-}
 
-fn drawWrappedTextBounded(first_y: i32, max_y: i32, text: []const u8, fg: Color, bg: Color) i32 {
-    var y = first_y;
-    var index: usize = 0;
-    var last_start: usize = 0;
-    var last_end: usize = 0;
+    pub fn unwrapError(err: anyerror) noreturn {
+        _ = &err;
+        panicCall("attempt to unwrap error", @returnAddress());
+    }
 
-    while (index < text.len and y + metrics.h <= max_y) {
-        if (text[index] == '\r') {
-            index += 1;
-            continue;
+    pub fn outOfBounds(index: usize, len: usize) noreturn {
+        _ = index;
+        _ = len;
+        panicCall("index out of bounds", @returnAddress());
+    }
+
+    pub fn startGreaterThanEnd(start: usize, end: usize) noreturn {
+        _ = start;
+        _ = end;
+        panicCall("start index is larger than end index", @returnAddress());
+    }
+
+    pub fn inactiveUnionField(active_field: anytype, accessed: @TypeOf(active_field)) noreturn {
+        _ = accessed;
+        panicCall("access of inactive union field", @returnAddress());
+    }
+
+    pub fn sliceCastLenRemainder(src_len: usize) noreturn {
+        _ = src_len;
+        panicCall("slice length does not divide destination", @returnAddress());
+    }
+
+    pub fn reachedUnreachable() noreturn {
+        panicCall("reached unreachable code", @returnAddress());
+    }
+
+    pub fn unwrapNull() noreturn {
+        panicCall("attempt to use null value", @returnAddress());
+    }
+
+    pub fn castToNull() noreturn {
+        panicCall("cast causes pointer to be null", @returnAddress());
+    }
+
+    pub fn incorrectAlignment() noreturn {
+        panicCall("incorrect alignment", @returnAddress());
+    }
+
+    pub fn invalidErrorCode() noreturn {
+        panicCall("invalid error code", @returnAddress());
+    }
+
+    pub fn integerOutOfBounds() noreturn {
+        panicCall("integer does not fit in destination type", @returnAddress());
+    }
+
+    pub fn integerOverflow() noreturn {
+        panicCall("integer overflow", @returnAddress());
+    }
+
+    pub fn shlOverflow() noreturn {
+        panicCall("left shift overflowed bits", @returnAddress());
+    }
+
+    pub fn shrOverflow() noreturn {
+        panicCall("right shift overflowed bits", @returnAddress());
+    }
+
+    pub fn divideByZero() noreturn {
+        panicCall("division by zero", @returnAddress());
+    }
+
+    pub fn exactDivisionRemainder() noreturn {
+        panicCall("exact division produced remainder", @returnAddress());
+    }
+
+    pub fn integerPartOutOfBounds() noreturn {
+        panicCall("integer part of float is out of bounds", @returnAddress());
+    }
+
+    pub fn corruptSwitch() noreturn {
+        panicCall("switch on corrupt value", @returnAddress());
+    }
+
+    pub fn shiftRhsTooBig() noreturn {
+        panicCall("shift amount is greater than type size", @returnAddress());
+    }
+
+    pub fn invalidEnumValue() noreturn {
+        panicCall("invalid enum value", @returnAddress());
+    }
+
+    pub fn forLenMismatch() noreturn {
+        panicCall("for loop operands have different lengths", @returnAddress());
+    }
+
+    pub fn copyLenMismatch() noreturn {
+        panicCall("source and destination lengths differ", @returnAddress());
+    }
+
+    pub fn memcpyAlias() noreturn {
+        panicCall("@memcpy arguments alias", @returnAddress());
+    }
+
+    pub fn noreturnReturned() noreturn {
+        panicCall("noreturn function returned", @returnAddress());
+    }
+};
+
+noinline fn panicCall(message: []const u8, return_address: ?usize) noreturn {
+    @branchHint(.cold);
+    const address = return_address orelse @returnAddress();
+
+    if (!active) {
+        active = true;
+        if (lcd.panicBegin()) {
+            drawScreen(message, address);
         }
+    }
 
-        if (text[index] == '\n') {
-            drawTextLine(y, "", font_size, fg, bg);
-            y += metrics.h;
-            index += 1;
-            continue;
+    lcd.panicHalt();
+}
+
+fn drawScreen(message: []const u8, return_address: ?usize) void {
+    // Commit the title first so the most important information is visible even
+    // if rendering the diagnostic details encounters damaged state.
+    lcd.panicFill(0, 0, lcd.WIDTH, lcd.HEIGHT, background);
+    drawText(margin_x, 16, .px24, ":( KERNEL PANIC");
+    lcd.panicPresent();
+
+    drawText(margin_x, 56, .px12, "The system has been halted.");
+    drawText(margin_x, 80, .px12, "Reason:");
+    drawWrappedReason(message);
+    drawAddress(return_address);
+    drawText(margin_x, 220, .px12, "Reset the board to restart.");
+    lcd.panicPresent();
+}
+
+fn drawText(x: i32, y: i32, size: FontSize, text: []const u8) void {
+    const metrics = size.metrics();
+    var cursor_x = x;
+
+    for (text) |byte| {
+        if (byte == '\n') break;
+        drawChar(cursor_x, y, size, printable(byte));
+        cursor_x += metrics.w;
+    }
+}
+
+fn drawChar(x: i32, y: i32, size: FontSize, ch: u8) void {
+    const metrics = size.metrics();
+    var row: i32 = 0;
+
+    while (row < metrics.h) : (row += 1) {
+        var col: i32 = 0;
+        while (col < metrics.w) {
+            while (col < metrics.w and !font.glyphLit(size, ch, col, row)) : (col += 1) {}
+            if (col == metrics.w) break;
+
+            const run_start = col;
+            while (col < metrics.w and font.glyphLit(size, ch, col, row)) : (col += 1) {}
+
+            lcd.panicFill(
+                @intCast(x + run_start),
+                @intCast(y + row),
+                @intCast(col - run_start),
+                1,
+                foreground,
+            );
         }
-
-        const start = index;
-        var cols: usize = 0;
-        while (index < text.len and cols < max_cols and text[index] != '\n' and text[index] != '\r') {
-            index += 1;
-            cols += 1;
-        }
-
-        last_start = start;
-        last_end = index;
-        drawTextLine(y, text[start..index], font_size, fg, bg);
-        y += metrics.h;
-    }
-
-    if (index < text.len and y > first_y) {
-        drawEllipsisLine(y - metrics.h, text[last_start..last_end], fg, bg);
-    }
-
-    return y;
-}
-
-fn drawWrappedText(first_y: i32, text: []const u8, fg: Color, bg: Color) i32 {
-    return drawWrappedTextBounded(first_y, lcd.HEIGHT, text, fg, bg);
-}
-
-fn wrappedLineCount(text: []const u8) i32 {
-    var lines: i32 = 0;
-    var index: usize = 0;
-    while (index < text.len) {
-        if (text[index] == '\r') {
-            index += 1;
-        } else if (text[index] == '\n') {
-            lines += 1;
-            index += 1;
-        } else {
-            var cols: usize = 0;
-            while (index < text.len and cols < max_cols and text[index] != '\n' and text[index] != '\r') {
-                index += 1;
-                cols += 1;
-            }
-            lines += 1;
-        }
-    }
-    return lines;
-}
-
-fn stackPointer() usize {
-    return asm volatile ("mv %[ret], sp"
-        : [ret] "=r" (-> usize),
-    );
-}
-
-fn isTextAddress(address: usize) bool {
-    const text_start = @intFromPtr(&_stext);
-    const text_end = @intFromPtr(&_ecode);
-    return address >= text_start and address < text_end and (address & 0x1) == 0;
-}
-
-fn isBacktraceAddress(address: usize) bool {
-    return address >= @intFromPtr(&_sbacktrace);
-}
-
-fn read16(address: usize) u16 {
-    return @as(*const u16, @ptrFromInt(address)).*;
-}
-
-fn read32(address: usize) u32 {
-    return @as(u32, read16(address)) | (@as(u32, read16(address + 2)) << 16);
-}
-
-fn isRaCall32(inst: u32) bool {
-    const opcode = inst & 0x7f;
-    const rd = (inst >> 7) & 0x1f;
-    return rd == 1 and (opcode == 0x6f or opcode == 0x67);
-}
-
-fn isRaCall16(inst: u16) bool {
-    const c_jal = (inst & 0xe003) == 0x2001;
-    const c_jalr = (inst & 0xf07f) == 0x9002 and ((inst >> 7) & 0x1f) != 0;
-    return c_jal or c_jalr;
-}
-
-fn callSiteFromReturnAddress(address: usize) ?usize {
-    if (!isTextAddress(address)) return null;
-
-    if (address >= @intFromPtr(&_stext) + 4) {
-        const call_site = address - 4;
-        const lo = read16(call_site);
-        if ((lo & 0x3) == 0x3 and isRaCall32(read32(call_site))) return call_site;
-    }
-
-    if (address >= @intFromPtr(&_stext) + 2) {
-        const call_site = address - 2;
-        const inst = read16(call_site);
-        if ((inst & 0x3) != 0x3 and isRaCall16(inst)) return call_site;
-    }
-
-    return null;
-}
-
-fn appendUnique(addrs: *[max_backtrace_entries]usize, count: *usize, return_address: usize) void {
-    const address = callSiteFromReturnAddress(return_address) orelse return;
-    if (!isBacktraceAddress(address)) return;
-
-    var i: usize = 0;
-    while (i < count.*) : (i += 1) {
-        if (addrs[i] == address) return;
-    }
-
-    if (count.* < addrs.len) {
-        addrs[count.*] = address;
-        count.* += 1;
     }
 }
 
-fn collectBacktrace(first_address: ?usize, addrs: *[max_backtrace_entries]usize) usize {
-    var count: usize = 0;
-    if (first_address) |address| appendUnique(addrs, &count, address);
-
-    const stack_start = @intFromPtr(&_susrstack);
-    const stack_end = @intFromPtr(&_eusrstack);
-    const sp = stackPointer();
-
-    var scan = if (sp > stack_start and sp < stack_end) sp else stack_start;
-    scan = std.mem.alignForward(usize, scan, @alignOf(usize));
-
-    while (scan + @sizeOf(usize) <= stack_end and count < addrs.len) : (scan += @sizeOf(usize)) {
-        const candidate = @as(*const usize, @ptrFromInt(scan)).*;
-        appendUnique(addrs, &count, candidate);
-    }
-
-    return count;
+fn printable(byte: u8) u8 {
+    return if (byte >= 0x20 and byte <= 0x7E) byte else '?';
 }
 
-fn drawBacktrace(first_y: i32, first_address: ?usize, fg: Color, bg: Color) void {
-    var addrs: [max_backtrace_entries]usize = undefined;
-    const count = collectBacktrace(first_address, &addrs);
-
-    var y = drawWrappedText(first_y, "Backtrace:", fg, bg);
-    if (count == 0) {
-        _ = drawWrappedText(y, "no addresses captured", fg, bg);
+fn drawWrappedReason(message: []const u8) void {
+    if (message.len == 0) {
+        drawText(margin_x, reason_y, .px12, "(no message)");
         return;
     }
 
-    var i: usize = 0;
-    while (i < count and y + metrics.h <= lcd.HEIGHT) : (i += 1) {
-        var line: [32]u8 = undefined;
-        const text = std.fmt.bufPrint(&line, "#{d}: 0x{x}", .{ i, addrs[i] }) catch "#?: <format failed>";
-        drawTextLine(y, text, font_size, fg, bg);
-        y += metrics.h;
+    const metrics = FontSize.px12.metrics();
+    var index: usize = 0;
+    var row: usize = 0;
+
+    while (row < reason_rows and index < message.len) : (row += 1) {
+        const last_row = row + 1 == reason_rows;
+        const line = scanLine(message, index, reason_cols);
+        const y = reason_y + @as(i32, @intCast(row)) * metrics.h;
+
+        if (last_row and line.next < message.len) {
+            drawMessageRange(margin_x, y, message, index, line.end, reason_cols - 3);
+            drawText(
+                margin_x + @as(i32, @intCast(reason_cols - 3)) * metrics.w,
+                y,
+                .px12,
+                "...",
+            );
+            return;
+        }
+
+        drawMessageRange(margin_x, y, message, index, line.end, reason_cols);
+        index = line.next;
     }
 }
 
-pub fn show(message: []const u8, return_address: ?usize) void {
-    if (@as(*volatile bool, &active).*) return;
-    @as(*volatile bool, &active).* = true;
+const ScannedLine = struct {
+    end: usize,
+    next: usize,
+};
 
-    if (!lcd.isInitialized()) return;
+fn scanLine(message: []const u8, start: usize, max_cols: usize) ScannedLine {
+    var index = start;
+    var cols: usize = 0;
 
-    const bg = blue_screen_bg;
-    lcd.fillBlocking(0, 0, lcd.WIDTH, lcd.HEIGHT, bg.toRgb565());
-
-    drawTitle(8, ":( KERNEL PANIC", Color.WHITE, bg);
-
-    const primary_text = "An error occurred and the system must be halted.";
-    const retry_text = "If this is the first time you have seen this screen, please reset the board and try again. If the problem continues, record the halt reason below.";
-    const content_y: i32 = 44;
-    const screen_lines = @divTrunc(@as(i32, lcd.HEIGHT) - content_y, metrics.h);
-    const reason_lines = 1 + wrappedLineCount(message);
-
-    var y: i32 = content_y;
-    if (wrappedLineCount(primary_text) + 1 + reason_lines <= screen_lines) {
-        y = drawWrappedText(y, primary_text, Color.WHITE, bg);
-        y += metrics.h;
+    while (index < message.len and cols < max_cols) : (index += 1) {
+        switch (message[index]) {
+            '\n' => return .{ .end = index, .next = index + 1 },
+            '\r' => {},
+            else => cols += 1,
+        }
     }
 
-    const used_lines = @divTrunc(y - content_y, metrics.h);
-    if (used_lines + wrappedLineCount(retry_text) + 1 + reason_lines <= screen_lines) {
-        y = drawWrappedText(y, retry_text, Color.WHITE, bg);
-        y += metrics.h;
+    return .{ .end = index, .next = index };
+}
+
+fn drawMessageRange(x: i32, y: i32, message: []const u8, start: usize, end: usize, max_cols: usize) void {
+    const metrics = FontSize.px12.metrics();
+    var index = start;
+    var col: usize = 0;
+
+    while (index < end and col < max_cols) : (index += 1) {
+        const byte = message[index];
+        if (byte == '\r') continue;
+        drawChar(x + @as(i32, @intCast(col)) * metrics.w, y, .px12, printable(byte));
+        col += 1;
     }
+}
 
-    y = drawWrappedTextBounded(y, lcd.HEIGHT, "Halt Reason:", Color.WHITE, bg);
-    y = drawWrappedTextBounded(y, lcd.HEIGHT, message, Color.WHITE, bg);
+fn drawAddress(return_address: ?usize) void {
+    const metrics = FontSize.px12.metrics();
+    const y: i32 = 196;
+    const prefix = "Address: ";
+    drawText(margin_x, y, .px12, prefix);
 
-    if (y + metrics.h <= lcd.HEIGHT) {
-        y += metrics.h;
-        drawBacktrace(y, return_address, Color.WHITE, bg);
+    var x = margin_x + @as(i32, @intCast(prefix.len)) * metrics.w;
+    const address = return_address orelse {
+        drawText(x, y, .px12, "N/A");
+        return;
+    };
+
+    drawText(x, y, .px12, "0x");
+    x += 2 * metrics.w;
+
+    const hex_digits: usize = @sizeOf(usize) * 2;
+    var digit: usize = hex_digits;
+    while (digit > 0) {
+        digit -= 1;
+        const shift: std.math.Log2Int(usize) = @intCast(digit * 4);
+        const value: u4 = @truncate(address >> shift);
+        const value_u8: u8 = value;
+        const ch: u8 = if (value < 10) '0' + value_u8 else 'A' + (value_u8 - 10);
+        drawChar(x, y, .px12, ch);
+        x += metrics.w;
     }
 }

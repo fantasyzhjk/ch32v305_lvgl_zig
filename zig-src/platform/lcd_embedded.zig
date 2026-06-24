@@ -18,6 +18,7 @@ pub var fore_color: u16 = Color.WHITE.toRgb565();
 pub var dma_tc_flag: bool = true;
 pub var dma_tc_counter: u32 = 0;
 pub var dma_auto_cleanup: bool = false;
+var initialized: bool = false;
 
 comptime {
     interrupt.exportFastIrq("DMA1_Channel5_IRQHandler", struct {
@@ -52,6 +53,16 @@ fn spiWaitBusIdle() void {
 
 fn spiWaitTx() void {
     while (hal.SPI_I2S_GetFlagStatus(hal.SPI2, hal.SPI_I2S_FLAG_TXE) == hal.RESET) {}
+}
+
+fn disableInterrupts() void {
+    const mask: usize = 0x88;
+    asm volatile (
+        \\csrc 0x800, %[mask]
+        \\fence.i
+        :
+        : [mask] "r" (mask),
+        : .{ .memory = true });
 }
 
 fn writeBusOnly(dat: u8) void {
@@ -299,10 +310,69 @@ pub fn init() void {
             writeData8(d);
         }
     }
+
+    initialized = true;
 }
 
 pub fn deinit() void {
+    initialized = false;
     hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_11, hal.Bit_RESET);
 }
 
 pub fn present() void {}
+
+/// Enter a self-contained LCD mode suitable for panic handling. Interrupts are
+/// disabled and any in-flight DMA transfer is abandoned before SPI is restored
+/// to the 8-bit command mode expected by addressSet().
+pub fn panicBegin() bool {
+    if (!initialized) return false;
+
+    disableInterrupts();
+    hal.DMA_Cmd(hal.DMA1_Channel5, hal.DISABLE);
+    while ((hal.DMA1_Channel5.*.CFGR & 1) != 0) {}
+    hal.SPI_I2S_DMACmd(hal.SPI2, hal.SPI_I2S_DMAReq_Tx, hal.DISABLE);
+    hal.DMA_ClearITPendingBit(hal.DMA1_IT_GL5);
+
+    spiWaitBusIdle();
+    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
+
+    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
+    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_8b);
+    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
+
+    dma_tc_flag = true;
+    dma_auto_cleanup = false;
+    return true;
+}
+
+/// Blocking RGB565 rectangle fill used only after panicBegin().
+pub fn panicFill(x: u16, y: u16, w: u16, h: u16, color: u16) void {
+    if (w == 0 or h == 0) return;
+
+    addressSet(x, y, x + w - 1, y + h - 1);
+    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_RESET);
+
+    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
+    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_16b);
+    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
+
+    var remaining: u32 = @as(u32, w) * @as(u32, h);
+    while (remaining != 0) : (remaining -= 1) {
+        spiWaitTx();
+        hal.SPI_I2S_SendData(hal.SPI2, color);
+    }
+
+    spiWaitBusIdle();
+    hal.GPIO_WriteBit(hal.GPIOB, hal.GPIO_Pin_12, hal.Bit_SET);
+
+    hal.SPI_Cmd(hal.SPI2, hal.DISABLE);
+    hal.SPI_DataSizeConfig(hal.SPI2, hal.SPI_DataSize_8b);
+    hal.SPI_Cmd(hal.SPI2, hal.ENABLE);
+}
+
+pub fn panicPresent() void {}
+
+pub fn panicHalt() noreturn {
+    disableInterrupts();
+    while (true) asm volatile ("wfi");
+}

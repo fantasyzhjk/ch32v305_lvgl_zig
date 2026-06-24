@@ -5,6 +5,9 @@ const tick = @import("tick.zig");
 const lcd = @import("lcd.zig");
 const usb = @import("usb.zig");
 const app = @import("app.zig");
+const panic_screen = @import("panic_screen.zig");
+
+pub const panic = panic_screen.Panic;
 
 fn mainImpl() callconv(.c) if (platform.is_embedded) noreturn else void {
     if (comptime platform.is_embedded) {

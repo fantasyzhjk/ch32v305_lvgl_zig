@@ -14,3 +14,10 @@ pub const flushAsync = _impl.flushAsync;
 pub const waitDmaDone = _impl.waitDmaDone;
 pub const addressSet = _impl.addressSet;
 pub const present = _impl.present;
+
+// Panic-only path. These functions avoid heap allocation and, on embedded
+// hardware, do not depend on DMA completion interrupts.
+pub const panicBegin = _impl.panicBegin;
+pub const panicFill = _impl.panicFill;
+pub const panicPresent = _impl.panicPresent;
+pub const panicHalt = _impl.panicHalt;
