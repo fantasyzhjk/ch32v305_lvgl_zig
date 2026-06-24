@@ -77,18 +77,10 @@ fn buildSim(b: *std.Build, optimize: std.builtin.OptimizeMode) void {
         }),
     });
 
-    // SDL2 setup: use the vendored development libraries (dynamic linking via import lib)
-    const sdl2_base = "deps/sdl2/SDL2-2.30.12/x86_64-w64-mingw32";
-    exe.root_module.addIncludePath(b.path(sdl2_base ++ "/include"));
-    exe.root_module.addObjectFile(b.path(sdl2_base ++ "/lib/libSDL2.dll.a"));
+    // Resolve SDL2 through pkg-config. This supplies both the platform-specific
+    // include flags and the correctly named dynamic library.
+    exe.root_module.linkSystemLibrary("sdl2", .{ .use_pkg_config = .force });
     exe.root_module.link_libc = true;
-
-    // Install SDL2.dll alongside the executable
-    const install_dll = b.addInstallBinFile(
-        b.path(sdl2_base ++ "/bin/SDL2.dll"),
-        "SDL2.dll",
-    );
-    exe.step.dependOn(&install_dll.step);
 
     const install = b.addInstallArtifact(exe, .{});
     b.getInstallStep().dependOn(&install.step);
