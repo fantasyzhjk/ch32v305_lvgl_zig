@@ -123,11 +123,11 @@ pub const Renderer3D = struct {
         const cos_p = @cos(pitch_rad);
         const sin_p = @sin(pitch_rad);
 
-        const rx = p.x * cos_y - p.z * sin_y;
+        const rx = p.x * cos_y + p.z * sin_y;
         const ry = p.y;
-        const rz = p.x * sin_y + p.z * cos_y;
-        const ry2 = ry * cos_p - rz * sin_p;
-        const rz2 = ry * sin_p + rz * cos_p;
+        const rz = -p.x * sin_y + p.z * cos_y;
+        const ry2 = ry * cos_p + rz * sin_p;
+        const rz2 = -ry * sin_p + rz * cos_p;
 
         const trans_z = rz2 + self.camera_dist;
 

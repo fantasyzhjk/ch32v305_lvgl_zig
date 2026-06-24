@@ -54,9 +54,9 @@ fn drawScene(r: *ui.Renderer3D, canvas: *ui.Canvas) void {
     const key: u16 = 0x07E0;
 
     r.drawTexTriangle(
-        .{ .x = pv[4].x, .y = pv[4].y, .z = pv[4].z, .u = 0, .v = 0 },
-        .{ .x = pv[5].x, .y = pv[5].y, .z = pv[5].z, .u = tw_f, .v = 0 },
-        .{ .x = pv[7].x, .y = pv[7].y, .z = pv[7].z, .u = 0, .v = th_f },
+        .{ .x = pv[4].x, .y = pv[4].y, .z = pv[4].z, .u = tw_f, .v = 0 },
+        .{ .x = pv[5].x, .y = pv[5].y, .z = pv[5].z, .u = 0, .v = 0 },
+        .{ .x = pv[7].x, .y = pv[7].y, .z = pv[7].z, .u = tw_f, .v = th_f },
         &tex_buf,
         tex_w,
         tex_h,
@@ -64,9 +64,9 @@ fn drawScene(r: *ui.Renderer3D, canvas: *ui.Canvas) void {
         key,
     );
     r.drawTexTriangle(
-        .{ .x = pv[5].x, .y = pv[5].y, .z = pv[5].z, .u = tw_f, .v = 0 },
-        .{ .x = pv[6].x, .y = pv[6].y, .z = pv[6].z, .u = tw_f, .v = th_f },
-        .{ .x = pv[7].x, .y = pv[7].y, .z = pv[7].z, .u = 0, .v = th_f },
+        .{ .x = pv[5].x, .y = pv[5].y, .z = pv[5].z, .u = 0, .v = 0 },
+        .{ .x = pv[6].x, .y = pv[6].y, .z = pv[6].z, .u = 0, .v = th_f },
+        .{ .x = pv[7].x, .y = pv[7].y, .z = pv[7].z, .u = tw_f, .v = th_f },
         &tex_buf,
         tex_w,
         tex_h,
