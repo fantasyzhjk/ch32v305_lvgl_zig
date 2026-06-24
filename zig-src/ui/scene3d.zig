@@ -12,17 +12,18 @@ pub const Model3D = struct {
     edge_color: Color = Color.WHITE,
     visible: bool = true,
 
-    pub fn localToWorld(self: *const Model3D, point: Point3D) Point3D {
+    /// 模型局部坐标到 Scene3D 根坐标；最终世界坐标应使用 Scene3D.modelToWorld。
+    pub fn localToScene(self: *const Model3D, point: Point3D) Point3D {
         return self.transform.localToWorld(point);
     }
 
-    pub fn worldToLocal(self: *const Model3D, point: Point3D) ?Point3D {
+    pub fn sceneToLocal(self: *const Model3D, point: Point3D) ?Point3D {
         return self.transform.worldToLocal(point);
     }
 
-    pub fn vertexToWorld(self: *const Model3D, vertex_index: usize) ?Point3D {
+    pub fn vertexToScene(self: *const Model3D, vertex_index: usize) ?Point3D {
         if (vertex_index >= self.mesh.vertices.len) return null;
-        return self.localToWorld(self.mesh.vertices[vertex_index]);
+        return self.localToScene(self.mesh.vertices[vertex_index]);
     }
 };
 
@@ -35,64 +36,75 @@ pub const ProjectionRange = struct {
     }
 };
 
-const PreparedProjection3D = struct {
+const PreparedCamera3D = struct {
     fov: f32,
-    camera_dist: f32,
     near_clip: f32,
-    cos_y: f32,
-    sin_y: f32,
-    cos_p: f32,
-    sin_p: f32,
+    view_matrix: types.Mat4,
 
-    fn projectWorld(self: PreparedProjection3D, point: Point3D, screen_cx: f32, screen_cy: f32) TexVertex {
-        const rx = point.x * self.cos_y + point.z * self.sin_y;
-        const ry = point.y;
-        const rz = -point.x * self.sin_y + point.z * self.cos_y;
-        const ry2 = ry * self.cos_p + rz * self.sin_p;
-        const rz2 = -ry * self.sin_p + rz * self.cos_p;
-        const trans_z = rz2 + self.camera_dist;
+    fn projectWorld(self: PreparedCamera3D, point: Point3D, screen_cx: f32, screen_cy: f32) TexVertex {
+        const view = self.view_matrix.transformPoint(point);
 
-        if (trans_z <= self.near_clip) {
-            return .{ .x = screen_cx, .y = screen_cy, .z = trans_z, .u = 0, .v = 0 };
+        if (view.z <= self.near_clip) {
+            return .{ .x = screen_cx, .y = screen_cy, .z = view.z, .u = 0, .v = 0 };
         }
 
         return .{
-            .x = (rx * self.fov) / trans_z + screen_cx,
-            .y = (ry2 * self.fov) / trans_z + screen_cy,
-            .z = trans_z,
+            .x = (view.x * self.fov) / view.z + screen_cx,
+            .y = (view.y * self.fov) / view.z + screen_cy,
+            .z = view.z,
             .u = 0,
             .v = 0,
         };
     }
 };
 
-/// 保留 Renderer3D 原有相机语义的世界坐标投影参数。
-pub const Projection3D = struct {
-    fov: f32 = 60.0,
-    camera_dist: f32 = 30.0,
+/// 位于世界坐标中的相机。默认位于 z=-30，朝世界 +Z 方向观察。
+pub const Camera3D = struct {
+    position: Point3D = .{ .x = 0, .y = 0, .z = -30 },
+    /// 绕世界 Y 轴的相机航向角，单位为度。
     yaw: f32 = 0.0,
+    /// 绕相机 X 轴的仰角，单位为度；在当前 Y 向下坐标系中正值表示抬头。
     pitch: f32 = 0.0,
+    fov: f32 = 60.0,
     near_clip: f32 = 0.01,
 
-    fn prepare(self: Projection3D) PreparedProjection3D {
-        const yaw_rad = self.yaw * (std.math.pi / 180.0);
-        const pitch_rad = self.pitch * (std.math.pi / 180.0);
+    /// 世界坐标到相机视图坐标：Rx(-pitch) * Ry(-yaw) * T(-position)。
+    pub fn viewMatrix(self: Camera3D) types.Mat4 {
+        const inverse_translation = types.Mat4.translation(.{
+            .x = -self.position.x,
+            .y = -self.position.y,
+            .z = -self.position.z,
+        });
+        const inverse_yaw = types.Mat4.rotationY(-self.yaw).mul(inverse_translation);
+        return types.Mat4.rotationX(-self.pitch).mul(inverse_yaw);
+    }
+
+    pub fn worldMatrix(self: Camera3D) types.Mat4 {
+        const pitched = types.Mat4.rotationY(self.yaw).mul(types.Mat4.rotationX(self.pitch));
+        return types.Mat4.translation(self.position).mul(pitched);
+    }
+
+    pub fn worldToView(self: Camera3D, point: Point3D) Point3D {
+        return self.viewMatrix().transformPoint(point);
+    }
+
+    pub fn viewToWorld(self: Camera3D, point: Point3D) Point3D {
+        return self.worldMatrix().transformPoint(point);
+    }
+
+    fn prepare(self: Camera3D) PreparedCamera3D {
         return .{
             .fov = self.fov,
-            .camera_dist = self.camera_dist,
             .near_clip = self.near_clip,
-            .cos_y = @cos(yaw_rad),
-            .sin_y = @sin(yaw_rad),
-            .cos_p = @cos(pitch_rad),
-            .sin_p = @sin(pitch_rad),
+            .view_matrix = self.viewMatrix(),
         };
     }
 
-    pub fn projectWorld(self: Projection3D, point: Point3D, screen_cx: f32, screen_cy: f32) TexVertex {
+    pub fn projectWorld(self: Camera3D, point: Point3D, screen_cx: f32, screen_cy: f32) TexVertex {
         return self.prepare().projectWorld(point, screen_cx, screen_cy);
     }
 
-    pub fn projectAll(self: Projection3D, world_vertices: []const Point3D, out: []TexVertex, screen_cx: f32, screen_cy: f32) void {
+    pub fn projectAll(self: Camera3D, world_vertices: []const Point3D, out: []TexVertex, screen_cx: f32, screen_cy: f32) void {
         std.debug.assert(world_vertices.len == out.len);
         const prepared = self.prepare();
         for (world_vertices, 0..) |vertex, index| {
@@ -100,7 +112,7 @@ pub const Projection3D = struct {
         }
     }
 
-    pub fn computeBounds(self: Projection3D, projected: []const TexVertex) ?Rect {
+    pub fn computeBounds(self: Camera3D, projected: []const TexVertex) ?Rect {
         var has_point = false;
         var min_x: f32 = 0;
         var max_x: f32 = 0;
@@ -139,6 +151,8 @@ pub const Projection3D = struct {
 pub const Scene3D = struct {
     allocator: std.mem.Allocator,
     models: []Model3D,
+    /// 作用于所有模型的世界根变换，与相机变换相互独立。
+    world_transform: types.Transform3D = .{},
     projected: []TexVertex,
     ranges: []ProjectionRange,
 
@@ -158,6 +172,7 @@ pub const Scene3D = struct {
         return .{
             .allocator = allocator,
             .models = models,
+            .world_transform = .{},
             .projected = projected,
             .ranges = ranges,
         };
@@ -186,22 +201,42 @@ pub const Scene3D = struct {
         return self.projected[range.start..range.end()];
     }
 
+    pub fn modelToWorld(self: *const Scene3D, model_index: usize, point: Point3D) ?Point3D {
+        if (model_index >= self.models.len) return null;
+        const model_point = self.models[model_index].localToScene(point);
+        return self.world_transform.localToWorld(model_point);
+    }
+
+    pub fn worldToModel(self: *const Scene3D, model_index: usize, point: Point3D) ?Point3D {
+        if (model_index >= self.models.len) return null;
+        const scene_point = self.world_transform.worldToLocal(point) orelse return null;
+        return self.models[model_index].sceneToLocal(scene_point);
+    }
+
+    pub fn vertexToWorld(self: *const Scene3D, model_index: usize, vertex_index: usize) ?Point3D {
+        if (model_index >= self.models.len) return null;
+        const model = &self.models[model_index];
+        if (vertex_index >= model.mesh.vertices.len) return null;
+        return self.modelToWorld(model_index, model.mesh.vertices[vertex_index]);
+    }
+
     /// 将所有可见模型直接投影到共享缓存，不保留世界顶点副本。
-    pub fn projectAll(self: *Scene3D, projection: Projection3D, screen_cx: f32, screen_cy: f32) ?Rect {
+    pub fn projectAll(self: *Scene3D, camera: Camera3D, screen_cx: f32, screen_cy: f32) ?Rect {
         var scene_bounds: ?Rect = null;
-        const prepared_projection = projection.prepare();
+        const prepared_camera = camera.prepare();
+        const world_matrix = self.world_transform.matrix();
 
         for (self.models, 0..) |*model, model_index| {
             if (!model.visible) continue;
 
             const out = self.projectedFor(model_index).?;
-            const world_matrix = model.transform.matrix();
+            const model_to_world = world_matrix.mul(model.transform.matrix());
             for (model.mesh.vertices, 0..) |vertex, vertex_index| {
-                const world_vertex = world_matrix.transformPoint(vertex);
-                out[vertex_index] = prepared_projection.projectWorld(world_vertex, screen_cx, screen_cy);
+                const world_vertex = model_to_world.transformPoint(vertex);
+                out[vertex_index] = prepared_camera.projectWorld(world_vertex, screen_cx, screen_cy);
             }
 
-            if (projection.computeBounds(out)) |model_bounds| {
+            if (camera.computeBounds(out)) |model_bounds| {
                 scene_bounds = if (scene_bounds) |bounds| Rect.unionRect(bounds, model_bounds) else model_bounds;
             }
         }
@@ -233,7 +268,7 @@ test "Scene3D assigns two model instances contiguous shared cache ranges" {
     try std.testing.expectEqual(@as(usize, 4), scene.projected.len);
     try std.testing.expectEqual(ProjectionRange{ .start = 0, .len = 2 }, scene.projectionRange(0).?);
     try std.testing.expectEqual(ProjectionRange{ .start = 2, .len = 2 }, scene.projectionRange(1).?);
-    try expectPointApprox(.{ .x = 9, .y = 0, .z = 0 }, models[1].vertexToWorld(0).?);
+    try expectPointApprox(.{ .x = 9, .y = 0, .z = 0 }, scene.vertexToWorld(1, 0).?);
 
     _ = scene.projectAll(.{}, 100, 100);
     try std.testing.expect(scene.projectedFor(0).?.ptr != scene.projectedFor(1).?.ptr);
@@ -264,5 +299,44 @@ test "Scene3D excludes hidden and camera-behind models from bounds" {
     var scene = try Scene3D.init(std.testing.allocator, &models);
     defer scene.deinit();
 
-    try std.testing.expect(scene.projectAll(.{ .camera_dist = 30 }, 50, 50) == null);
+    try std.testing.expect(scene.projectAll(.{}, 50, 50) == null);
+}
+
+test "Camera3D position yaw and pitch operate in world coordinates" {
+    const translated = Camera3D{ .position = .{ .x = 10, .y = 0, .z = -30 } };
+    const translated_view = translated.worldToView(.{ .x = 10, .y = 0, .z = 0 });
+    try expectPointApprox(.{ .x = 0, .y = 0, .z = 30 }, translated_view);
+
+    const yawed = Camera3D{ .position = .{ .x = 0, .y = 0, .z = 0 }, .yaw = 90 };
+    try expectPointApprox(.{ .x = 0, .y = 0, .z = 10 }, yawed.worldToView(.{ .x = 10, .y = 0, .z = 0 }));
+
+    const pitched = Camera3D{ .position = .{ .x = 0, .y = 0, .z = 0 }, .pitch = 90 };
+    try expectPointApprox(.{ .x = 0, .y = 0, .z = 10 }, pitched.worldToView(.{ .x = 0, .y = -10, .z = 0 }));
+
+    const oriented = Camera3D{
+        .position = .{ .x = 4, .y = -3, .z = -12 },
+        .yaw = 32,
+        .pitch = -18,
+    };
+    const point = Point3D{ .x = 7, .y = -3, .z = 18 };
+    try expectPointApprox(point, oriented.viewToWorld(oriented.worldToView(point)));
+}
+
+test "Scene3D world transform is independent from model transforms" {
+    const vertices = [_]Point3D{.{ .x = 1, .y = 0, .z = 0 }};
+    const mesh = types.Mesh{ .vertices = &vertices, .edges = &.{} };
+    var models = [_]Model3D{.{
+        .mesh = &mesh,
+        .transform = .{ .position = .{ .x = 1, .y = 0, .z = 0 } },
+    }};
+    var scene = try Scene3D.init(std.testing.allocator, &models);
+    defer scene.deinit();
+    scene.world_transform = .{
+        .position = .{ .x = 10, .y = 0, .z = 0 },
+        .rotation_deg = .{ .x = 0, .y = 0, .z = 90 },
+    };
+
+    const world = scene.vertexToWorld(0, 0).?;
+    try expectPointApprox(.{ .x = 10, .y = 2, .z = 0 }, world);
+    try expectPointApprox(vertices[0], scene.worldToModel(0, world).?);
 }

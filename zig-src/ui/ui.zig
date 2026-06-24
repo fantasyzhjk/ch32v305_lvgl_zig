@@ -31,7 +31,7 @@ pub const Canvas = canvas.Canvas;
 pub const Renderer3D = renderer3d.Renderer3D;
 pub const Model3D = scene3d.Model3D;
 pub const Scene3D = scene3d.Scene3D;
-pub const Projection3D = scene3d.Projection3D;
+pub const Camera3D = scene3d.Camera3D;
 pub const ProjectionRange = scene3d.ProjectionRange;
 
 pub const Display = core.Display;

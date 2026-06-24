@@ -13,7 +13,7 @@ const Rect = types.Rect;
 const Node = core.Node;
 const Canvas = canvas_mod.Canvas;
 const Scene3D = scene3d.Scene3D;
-const Projection3D = scene3d.Projection3D;
+const Camera3D = scene3d.Camera3D;
 
 pub const Renderer3D = struct {
     // UI 节点（嵌入 widget 树，受脏区域管理）
@@ -22,12 +22,8 @@ pub const Renderer3D = struct {
     // 固定模型集合及其共享投影缓存
     scene: *Scene3D,
 
-    // 相机参数
-    fov: f32 = 60.0,
-    camera_dist: f32 = 30.0,
-    yaw: f32 = 0.0,
-    pitch: f32 = 0.0,
-    near_clip: f32 = 0.01,
+    // 位于世界坐标中的相机
+    camera: Camera3D = .{},
 
     // 帧缓冲绑定（每帧由 draw_cb 从 Canvas 同步）
     area: Rect = Rect.init(0, 0, 0, 0),
@@ -46,9 +42,7 @@ pub const Renderer3D = struct {
     pub const Options = struct {
         area: Rect,
         scene: *Scene3D,
-        fov: f32 = 60.0,
-        camera_dist: f32 = 30.0,
-        near_clip: f32 = 0.01,
+        camera: Camera3D = .{},
     };
 
     pub fn init(args: anytype) Renderer3D {
@@ -59,9 +53,7 @@ pub const Renderer3D = struct {
         var self = Renderer3D{
             .node = Node.init(area.x, area.y, area.w, area.h),
             .scene = args.scene,
-            .fov = if (@hasField(@TypeOf(args), "fov")) args.fov else 60.0,
-            .camera_dist = if (@hasField(@TypeOf(args), "camera_dist")) args.camera_dist else 30.0,
-            .near_clip = if (@hasField(@TypeOf(args), "near_clip")) args.near_clip else 0.01,
+            .camera = if (@hasField(@TypeOf(args), "camera")) args.camera else .{},
         };
         self.node.draw_cb = drawCb;
         return self;
@@ -71,35 +63,25 @@ pub const Renderer3D = struct {
         return &self.node;
     }
 
-    fn projection(self: *const Renderer3D) Projection3D {
-        return .{
-            .fov = self.fov,
-            .camera_dist = self.camera_dist,
-            .yaw = self.yaw,
-            .pitch = self.pitch,
-            .near_clip = self.near_clip,
-        };
-    }
-
     /// 将一个世界坐标点投影到当前 Renderer3D 的屏幕空间。
     pub fn projectWorld(self: *const Renderer3D, point: Point3D) TexVertex {
         const abs = self.node.getAbsArea();
         const screen_cx = @as(f32, @floatFromInt(abs.x + @divTrunc(abs.w, 2)));
         const screen_cy = @as(f32, @floatFromInt(abs.y + @divTrunc(abs.h, 2)));
-        return self.projection().projectWorld(point, screen_cx, screen_cy);
+        return self.camera.projectWorld(point, screen_cx, screen_cy);
     }
 
-    /// 兼容原有显式屏幕中心的投影接口；输入现在明确为世界坐标。
+    /// 使用显式屏幕中心投影世界坐标点。
     pub fn project(self: *const Renderer3D, point: Point3D, screen_cx: f32, screen_cy: f32) TexVertex {
-        return self.projection().projectWorld(point, screen_cx, screen_cy);
+        return self.camera.projectWorld(point, screen_cx, screen_cy);
     }
 
     pub fn projectAll(self: *const Renderer3D, world_vertices: []const Point3D, out: []TexVertex, screen_cx: f32, screen_cy: f32) void {
-        self.projection().projectAll(world_vertices, out, screen_cx, screen_cy);
+        self.camera.projectAll(world_vertices, out, screen_cx, screen_cy);
     }
 
     pub fn computeBounds(self: *const Renderer3D, projected: []const TexVertex) ?Rect {
-        return self.projection().computeBounds(projected);
+        return self.camera.computeBounds(projected);
     }
 
     /// 投影整个场景并更新场景级脏区域。应在 display.render() 前调用。
@@ -107,7 +89,7 @@ pub const Renderer3D = struct {
         const abs = self.node.getAbsArea();
         const screen_cx = @as(f32, @floatFromInt(abs.x + @divTrunc(abs.w, 2)));
         const screen_cy = @as(f32, @floatFromInt(abs.y + @divTrunc(abs.h, 2)));
-        const new_bb = self.scene.projectAll(self.projection(), screen_cx, screen_cy);
+        const new_bb = self.scene.projectAll(self.camera, screen_cx, screen_cy);
 
         if (self.has_old_bb) {
             const changed = if (new_bb) |bounds|
@@ -163,7 +145,7 @@ pub const Renderer3D = struct {
             if (edge[0] >= projected.len or edge[1] >= projected.len) continue;
             const v0 = projected[edge[0]];
             const v1 = projected[edge[1]];
-            if (v0.z <= self.near_clip or v1.z <= self.near_clip) continue;
+            if (v0.z <= self.camera.near_clip or v1.z <= self.camera.near_clip) continue;
             canvas.drawLine(@intFromFloat(v0.x), @intFromFloat(v0.y), @intFromFloat(v1.x), @intFromFloat(v1.y), color);
         }
 
@@ -172,7 +154,7 @@ pub const Renderer3D = struct {
             const v0 = projected[face.verts[0]];
             const v1 = projected[face.verts[1]];
             const v2 = projected[face.verts[2]];
-            if (v0.z <= self.near_clip or v1.z <= self.near_clip or v2.z <= self.near_clip) continue;
+            if (v0.z <= self.camera.near_clip or v1.z <= self.camera.near_clip or v2.z <= self.camera.near_clip) continue;
             if (face.tex) |tex| {
                 self.drawTexTriangle(
                     .{ .x = v0.x, .y = v0.y, .z = v0.z, .u = face.uvs[0][0], .v = face.uvs[0][1] },
@@ -207,7 +189,7 @@ pub const Renderer3D = struct {
         stride: i32,
         color_key: u16,
     ) void {
-        if (v0.z <= self.near_clip or v1.z <= self.near_clip or v2.z <= self.near_clip) return;
+        if (v0.z <= self.camera.near_clip or v1.z <= self.camera.near_clip or v2.z <= self.camera.near_clip) return;
 
         var vt = [_]TexVertex{ v0, v1, v2 };
         if (vt[0].y > vt[1].y) std.mem.swap(TexVertex, &vt[0], &vt[1]);

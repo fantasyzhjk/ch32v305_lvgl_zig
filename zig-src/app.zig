@@ -142,8 +142,9 @@ pub fn run() void {
             title.setText(formatTitleText(gpa));
             title.step(-2);
 
-            renderer.yaw = utils.lerp(f32, renderer.yaw, target_yaw, decay);
-            renderer.pitch = utils.lerp(f32, renderer.pitch, target_pitch, decay);
+            // 输入仍然旋转整个世界，不改变相机姿态。X 轴取反以保持原有屏幕俯仰方向。
+            scene.world_transform.rotation_deg.y = utils.lerp(f32, scene.world_transform.rotation_deg.y, target_yaw, decay);
+            scene.world_transform.rotation_deg.x = utils.lerp(f32, scene.world_transform.rotation_deg.x, -target_pitch, decay);
 
             if (dvd_color.toRgb565() != target_color.toRgb565()) {
                 dvd_color = utils.lerpColor(dvd_color, target_color, decay);
