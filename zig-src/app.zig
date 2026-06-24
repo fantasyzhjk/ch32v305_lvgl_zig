@@ -34,11 +34,6 @@ const th_f: f32 = @floatFromInt(tex_h);
 const cube_vertices = utils.createCubeVertices(20);
 const cube_edges = utils.autoGenEdges(&cube_vertices, 20.5);
 
-fn drawScene(r: *Renderer3D, canvas: *ui.Canvas) void {
-    const mesh: *ui.Mesh = @ptrCast(@alignCast(r.user_data));
-    r.drawProjected(canvas, mesh, dvd_color);
-}
-
 fn updateTexture(r: *Renderer3D) void {
     if (!tex_dirty) return;
     @memset(&tex_buf, 0x07E0);
@@ -86,14 +81,31 @@ pub fn run() void {
         .vertices = &cube_vertices,
         .edges = cube_edges,
         .faces = &cube_faces,
-        .projected = gpa.alloc(ui.TexVertex, cube_vertices.len) catch unreachable,
     };
+
+    var models = [_]ui.Model3D{
+        .{
+            .mesh = &cube_mesh,
+            .transform = .{ .position = .{ .x = -8, .y = 0, .z = 0 } },
+            .edge_color = dvd_color,
+        },
+        .{
+            .mesh = &cube_mesh,
+            .transform = .{
+                .position = .{ .x = 10, .y = 0, .z = 2 },
+                .rotation_deg = .{ .x = 25, .y = 35, .z = 10 },
+                .scale = .{ .x = 0.65, .y = 0.65, .z = 0.65 },
+            },
+            .edge_color = Color.GOLD,
+        },
+    };
+    var scene = ui.Scene3D.init(gpa, &models) catch unreachable;
+    defer scene.deinit();
 
     var renderer = display.addToScreen(ui.Renderer3D, .{
         .area = ui.rect(70, 70, 120, 120),
+        .scene = &scene,
     }) catch unreachable;
-    renderer.user_draw = drawScene;
-    renderer.user_data = &cube_mesh;
     const dvd_node = renderer.asNode();
 
     const items: [4]ui.widgets.List.Item = .{
@@ -135,6 +147,7 @@ pub fn run() void {
 
             if (dvd_color.toRgb565() != target_color.toRgb565()) {
                 dvd_color = utils.lerpColor(dvd_color, target_color, decay);
+                models[0].edge_color = dvd_color;
                 tex_dirty = true;
             }
 
@@ -185,10 +198,10 @@ pub fn run() void {
                 list.select(@intCast(utils.randRange(0, 3)));
             }
 
-            // dvd_node.setPos(new_x, new_y);
+            dvd_node.setPos(new_x, new_y);
             updateTexture(renderer);
             list.update();
-            renderer.update(&cube_mesh);
+            renderer.update();
             display.render();
         }
     }

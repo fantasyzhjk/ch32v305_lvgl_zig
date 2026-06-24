@@ -4,6 +4,7 @@ const Color = @import("color.zig").Color565;
 const types = @import("types.zig");
 const core = @import("core.zig");
 const canvas_mod = @import("canvas.zig");
+const scene3d = @import("scene3d.zig");
 
 const Point3D = types.Point3D;
 const TexVertex = types.TexVertex;
@@ -11,16 +12,22 @@ const FontSize = types.FontSize;
 const Rect = types.Rect;
 const Node = core.Node;
 const Canvas = canvas_mod.Canvas;
+const Scene3D = scene3d.Scene3D;
+const Projection3D = scene3d.Projection3D;
 
 pub const Renderer3D = struct {
     // UI 节点（嵌入 widget 树，受脏区域管理）
     node: Node,
+
+    // 固定模型集合及其共享投影缓存
+    scene: *Scene3D,
 
     // 相机参数
     fov: f32 = 60.0,
     camera_dist: f32 = 30.0,
     yaw: f32 = 0.0,
     pitch: f32 = 0.0,
+    near_clip: f32 = 0.01,
 
     // 帧缓冲绑定（每帧由 draw_cb 从 Canvas 同步）
     area: Rect = Rect.init(0, 0, 0, 0),
@@ -30,23 +37,31 @@ pub const Renderer3D = struct {
     // 脏区域追踪：上一帧的紧致包围盒
     old_bb: Rect = Rect.init(0, 0, 0, 0),
     has_old_bb: bool = false,
+    has_projection: bool = false,
 
-    // 用户自定义绘制回调
+    // 场景绘制后的用户叠加回调
     user_draw: ?*const fn (renderer: *Renderer3D, canvas: *Canvas) void = null,
     user_data: ?*anyopaque = null,
 
     pub const Options = struct {
         area: Rect,
+        scene: *Scene3D,
         fov: f32 = 60.0,
         camera_dist: f32 = 30.0,
+        near_clip: f32 = 0.01,
     };
 
     pub fn init(args: anytype) Renderer3D {
+        if (!@hasField(@TypeOf(args), "scene")) {
+            @compileError("Renderer3D requires a scene option");
+        }
         const area = args.area;
         var self = Renderer3D{
             .node = Node.init(area.x, area.y, area.w, area.h),
+            .scene = args.scene,
             .fov = if (@hasField(@TypeOf(args), "fov")) args.fov else 60.0,
             .camera_dist = if (@hasField(@TypeOf(args), "camera_dist")) args.camera_dist else 30.0,
+            .near_clip = if (@hasField(@TypeOf(args), "near_clip")) args.near_clip else 0.01,
         };
         self.node.draw_cb = drawCb;
         return self;
@@ -56,55 +71,62 @@ pub const Renderer3D = struct {
         return &self.node;
     }
 
-    /// 投影网格顶点到 mesh.projected
-    pub fn projectMesh(self: *Renderer3D, mesh: *types.Mesh) void {
+    fn projection(self: *const Renderer3D) Projection3D {
+        return .{
+            .fov = self.fov,
+            .camera_dist = self.camera_dist,
+            .yaw = self.yaw,
+            .pitch = self.pitch,
+            .near_clip = self.near_clip,
+        };
+    }
+
+    /// 将一个世界坐标点投影到当前 Renderer3D 的屏幕空间。
+    pub fn projectWorld(self: *const Renderer3D, point: Point3D) TexVertex {
         const abs = self.node.getAbsArea();
-        const cx = @as(f32, @floatFromInt(abs.x + @divTrunc(abs.w, 2)));
-        const cy = @as(f32, @floatFromInt(abs.y + @divTrunc(abs.h, 2)));
-        self.projectAll(mesh.vertices, mesh.projected, cx, cy);
+        const screen_cx = @as(f32, @floatFromInt(abs.x + @divTrunc(abs.w, 2)));
+        const screen_cy = @as(f32, @floatFromInt(abs.y + @divTrunc(abs.h, 2)));
+        return self.projection().projectWorld(point, screen_cx, screen_cy);
     }
 
-    /// 从已投影的 mesh.projected 计算紧致包围盒（屏幕空间）
-    pub fn computeBounds(_: *Renderer3D, projected: []const TexVertex) Rect {
-        var min_x: f32 = projected[0].x;
-        var max_x: f32 = projected[0].x;
-        var min_y: f32 = projected[0].y;
-        var max_y: f32 = projected[0].y;
-        for (projected[1..]) |v| {
-            if (v.x < min_x) min_x = v.x;
-            if (v.x > max_x) max_x = v.x;
-            if (v.y < min_y) min_y = v.y;
-            if (v.y > max_y) max_y = v.y;
-        }
-
-        // 向外扩展 1 像素，补偿 drawLine 整数取整和像素半径
-        return Rect.init(
-            @as(i32, @intFromFloat(@floor(min_x))) - 1,
-            @as(i32, @intFromFloat(@floor(min_y))) - 1,
-            @as(i32, @intFromFloat(@ceil(max_x - min_x))) + 2,
-            @as(i32, @intFromFloat(@ceil(max_y - min_y))) + 2,
-        );
+    /// 兼容原有显式屏幕中心的投影接口；输入现在明确为世界坐标。
+    pub fn project(self: *const Renderer3D, point: Point3D, screen_cx: f32, screen_cy: f32) TexVertex {
+        return self.projection().projectWorld(point, screen_cx, screen_cy);
     }
 
-    /// 投影网格并更新脏区域。每帧 render 前调用一次。
-    pub fn update(self: *Renderer3D, mesh: *types.Mesh) void {
-        self.projectMesh(mesh);
-        self.updateDirty(mesh);
+    pub fn projectAll(self: *const Renderer3D, world_vertices: []const Point3D, out: []TexVertex, screen_cx: f32, screen_cy: f32) void {
+        self.projection().projectAll(world_vertices, out, screen_cx, screen_cy);
     }
 
-    /// 读取 mesh.projected 计算脏区域。需先调用 projectMesh。
-    fn updateDirty(self: *Renderer3D, mesh: *types.Mesh) void {
-        const new_bb = self.computeBounds(mesh.projected);
+    pub fn computeBounds(self: *const Renderer3D, projected: []const TexVertex) ?Rect {
+        return self.projection().computeBounds(projected);
+    }
+
+    /// 投影整个场景并更新场景级脏区域。应在 display.render() 前调用。
+    pub fn update(self: *Renderer3D) void {
+        const abs = self.node.getAbsArea();
+        const screen_cx = @as(f32, @floatFromInt(abs.x + @divTrunc(abs.w, 2)));
+        const screen_cy = @as(f32, @floatFromInt(abs.y + @divTrunc(abs.h, 2)));
+        const new_bb = self.scene.projectAll(self.projection(), screen_cx, screen_cy);
 
         if (self.has_old_bb) {
-            if (self.old_bb.x != new_bb.x or self.old_bb.y != new_bb.y or self.old_bb.w != new_bb.w or self.old_bb.h != new_bb.h) {
+            const changed = if (new_bb) |bounds|
+                self.old_bb.x != bounds.x or self.old_bb.y != bounds.y or self.old_bb.w != bounds.w or self.old_bb.h != bounds.h
+            else
+                true;
+            if (changed) {
                 self.node.invalidateArea(self.old_bb);
             }
         }
 
-        self.node.invalidateArea(new_bb);
-        self.old_bb = new_bb;
-        self.has_old_bb = true;
+        if (new_bb) |bounds| {
+            self.node.invalidateArea(bounds);
+            self.old_bb = bounds;
+            self.has_old_bb = true;
+        } else {
+            self.has_old_bb = false;
+        }
+        self.has_projection = true;
     }
 
     /// 将 Canvas 的帧缓冲同步到 Renderer3D（在 drawCb 中自动调用）
@@ -118,61 +140,39 @@ pub const Renderer3D = struct {
         // 通过 Node 地址反推 Renderer3D 指针（Node 是 Renderer3D 的第一个字段）
         const self: *Renderer3D = @ptrCast(@alignCast(node));
         self.bindCanvas(canvas);
+        if (self.has_projection) {
+            self.drawScene(canvas);
+        }
         if (self.user_draw) |draw| {
             draw(self, canvas);
         }
     }
 
-    pub fn project(self: *const Renderer3D, p: Point3D, screen_cx: f32, screen_cy: f32) TexVertex {
-        const yaw_rad = self.yaw * (3.14159265 / 180.0);
-        const pitch_rad = self.pitch * (3.14159265 / 180.0);
-        const cos_y = @cos(yaw_rad);
-        const sin_y = @sin(yaw_rad);
-        const cos_p = @cos(pitch_rad);
-        const sin_p = @sin(pitch_rad);
-
-        const rx = p.x * cos_y + p.z * sin_y;
-        const ry = p.y;
-        const rz = -p.x * sin_y + p.z * cos_y;
-        const ry2 = ry * cos_p + rz * sin_p;
-        const rz2 = -ry * sin_p + rz * cos_p;
-
-        const trans_z = rz2 + self.camera_dist;
-
-        return .{
-            .x = (rx * self.fov) / trans_z + screen_cx,
-            .y = (ry2 * self.fov) / trans_z + screen_cy,
-            .z = trans_z,
-            .u = 0,
-            .v = 0,
-        };
-    }
-
-    pub fn projectAll(self: *const Renderer3D, vertices: []const Point3D, out: []TexVertex, screen_cx: f32, screen_cy: f32) void {
-        for (vertices, 0..) |v, i| {
-            out[i] = self.project(v, screen_cx, screen_cy);
+    /// 按模型提交顺序绘制场景；后提交模型覆盖先提交模型。
+    pub fn drawScene(self: *Renderer3D, canvas: *Canvas) void {
+        for (self.scene.models, 0..) |*model, model_index| {
+            if (!model.visible) continue;
+            const projected = self.scene.projectedForConst(model_index).?;
+            self.drawProjected(canvas, model.mesh, projected, model.edge_color);
         }
     }
 
-    /// 投影网格并绘制边和面
-    pub fn drawMesh(self: *Renderer3D, canvas: *Canvas, mesh: *types.Mesh, color: Color) void {
-        self.projectMesh(mesh);
-        self.updateDirty(mesh);
-        self.drawProjected(canvas, mesh, color);
-    }
-
-    /// 绘制已投影的网格（边 + 纹理面）
-    pub fn drawProjected(self: *Renderer3D, canvas: *Canvas, mesh: *const types.Mesh, color: Color) void {
+    /// 绘制共享缓存中的一个网格区间（边 + 纹理面）。
+    pub fn drawProjected(self: *Renderer3D, canvas: *Canvas, mesh: *const types.Mesh, projected: []const TexVertex, color: Color) void {
         for (mesh.edges) |edge| {
-            const v0 = mesh.projected[edge[0]];
-            const v1 = mesh.projected[edge[1]];
+            if (edge[0] >= projected.len or edge[1] >= projected.len) continue;
+            const v0 = projected[edge[0]];
+            const v1 = projected[edge[1]];
+            if (v0.z <= self.near_clip or v1.z <= self.near_clip) continue;
             canvas.drawLine(@intFromFloat(v0.x), @intFromFloat(v0.y), @intFromFloat(v1.x), @intFromFloat(v1.y), color);
         }
 
         for (mesh.faces) |face| {
-            const v0 = mesh.projected[face.verts[0]];
-            const v1 = mesh.projected[face.verts[1]];
-            const v2 = mesh.projected[face.verts[2]];
+            if (face.verts[0] >= projected.len or face.verts[1] >= projected.len or face.verts[2] >= projected.len) continue;
+            const v0 = projected[face.verts[0]];
+            const v1 = projected[face.verts[1]];
+            const v2 = projected[face.verts[2]];
+            if (v0.z <= self.near_clip or v1.z <= self.near_clip or v2.z <= self.near_clip) continue;
             if (face.tex) |tex| {
                 self.drawTexTriangle(
                     .{ .x = v0.x, .y = v0.y, .z = v0.z, .u = face.uvs[0][0], .v = face.uvs[0][1] },
@@ -207,7 +207,7 @@ pub const Renderer3D = struct {
         stride: i32,
         color_key: u16,
     ) void {
-        if (v0.z <= 0.0 or v1.z <= 0.0 or v2.z <= 0.0) return;
+        if (v0.z <= self.near_clip or v1.z <= self.near_clip or v2.z <= self.near_clip) return;
 
         var vt = [_]TexVertex{ v0, v1, v2 };
         if (vt[0].y > vt[1].y) std.mem.swap(TexVertex, &vt[0], &vt[1]);

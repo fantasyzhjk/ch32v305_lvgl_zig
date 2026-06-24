@@ -43,11 +43,26 @@ pub fn build(b: *std.Build) void {
 
     const optimize = b.option(std.builtin.OptimizeMode, "optimize", "Optimization mode") orelse .ReleaseSmall;
 
+    addTests(b);
+
     if (sim) {
         buildSim(b, optimize);
     } else {
         buildEmbedded(b, optimize);
     }
+}
+
+fn addTests(b: *std.Build) void {
+    const tests = b.addTest(.{
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("zig-src/ui/scene3d.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
+    });
+    const run_tests = b.addRunArtifact(tests);
+    const test_step = b.step("test", "Run UI 3D math and scene tests");
+    test_step.dependOn(&run_tests.step);
 }
 
 fn buildSim(b: *std.Build, optimize: std.builtin.OptimizeMode) void {
