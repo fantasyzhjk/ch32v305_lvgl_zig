@@ -180,4 +180,5 @@ pub const Mesh = struct {
     vertices: []const Point3D,
     edges: []const [2]usize,
     faces: []const Face = &.{},
+    projected: []TexVertex,
 };

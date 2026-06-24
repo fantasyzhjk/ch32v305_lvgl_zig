@@ -34,11 +34,9 @@ const th_f: f32 = @floatFromInt(tex_h);
 const cube_vertices = utils.createCubeVertices(20);
 const cube_edges = utils.autoGenEdges(&cube_vertices, 20.5);
 
-var pv: [8]ui.TexVertex = undefined;
-
 fn drawScene(r: *Renderer3D, canvas: *ui.Canvas) void {
     const mesh: *ui.Mesh = @ptrCast(@alignCast(r.user_data));
-    r.drawProjected(canvas, mesh.*, &pv, dvd_color);
+    r.drawProjected(canvas, mesh, dvd_color);
 }
 
 fn updateTexture(r: *Renderer3D) void {
@@ -88,6 +86,7 @@ pub fn run() void {
         .vertices = &cube_vertices,
         .edges = cube_edges,
         .faces = &cube_faces,
+        .projected = gpa.alloc(ui.TexVertex, cube_vertices.len) catch unreachable,
     };
 
     var renderer = display.addToScreen(ui.Renderer3D, .{
@@ -189,7 +188,7 @@ pub fn run() void {
             // dvd_node.setPos(new_x, new_y);
             updateTexture(renderer);
             list.update();
-            renderer.updateDirty(&cube_vertices, &pv);
+            renderer.update(&cube_mesh);
             display.render();
         }
     }

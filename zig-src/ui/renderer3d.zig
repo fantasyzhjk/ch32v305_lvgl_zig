@@ -56,19 +56,21 @@ pub const Renderer3D = struct {
         return &self.node;
     }
 
-    /// 投影所有顶点并计算紧致包围盒（屏幕空间）
-    pub fn computeBounds(self: *const Renderer3D, vertices: []const Point3D, out: []TexVertex) Rect {
+    /// 投影网格顶点到 mesh.projected
+    pub fn projectMesh(self: *Renderer3D, mesh: *types.Mesh) void {
         const abs = self.node.getAbsArea();
         const cx = @as(f32, @floatFromInt(abs.x + @divTrunc(abs.w, 2)));
         const cy = @as(f32, @floatFromInt(abs.y + @divTrunc(abs.h, 2)));
+        self.projectAll(mesh.vertices, mesh.projected, cx, cy);
+    }
 
-        self.projectAll(vertices, out, cx, cy);
-
-        var min_x: f32 = out[0].x;
-        var max_x: f32 = out[0].x;
-        var min_y: f32 = out[0].y;
-        var max_y: f32 = out[0].y;
-        for (out[1..]) |v| {
+    /// 从已投影的 mesh.projected 计算紧致包围盒（屏幕空间）
+    pub fn computeBounds(_: *Renderer3D, projected: []const TexVertex) Rect {
+        var min_x: f32 = projected[0].x;
+        var max_x: f32 = projected[0].x;
+        var min_y: f32 = projected[0].y;
+        var max_y: f32 = projected[0].y;
+        for (projected[1..]) |v| {
             if (v.x < min_x) min_x = v.x;
             if (v.x > max_x) max_x = v.x;
             if (v.y < min_y) min_y = v.y;
@@ -84,18 +86,22 @@ pub const Renderer3D = struct {
         );
     }
 
-    /// 投影 + 包围盒 + 脏区域通知。每帧调用一次。
-    pub fn updateDirty(self: *Renderer3D, vertices: []const Point3D, out: []TexVertex) void {
-        const new_bb = self.computeBounds(vertices, out);
+    /// 投影网格并更新脏区域。每帧 render 前调用一次。
+    pub fn update(self: *Renderer3D, mesh: *types.Mesh) void {
+        self.projectMesh(mesh);
+        self.updateDirty(mesh);
+    }
+
+    /// 读取 mesh.projected 计算脏区域。需先调用 projectMesh。
+    fn updateDirty(self: *Renderer3D, mesh: *types.Mesh) void {
+        const new_bb = self.computeBounds(mesh.projected);
 
         if (self.has_old_bb) {
-            // 旧区域需要重绘（清除残留像素）
             if (self.old_bb.x != new_bb.x or self.old_bb.y != new_bb.y or self.old_bb.w != new_bb.w or self.old_bb.h != new_bb.h) {
                 self.node.invalidateArea(self.old_bb);
             }
         }
 
-        // 新区域需要重绘
         self.node.invalidateArea(new_bb);
         self.old_bb = new_bb;
         self.has_old_bb = true;
@@ -148,28 +154,25 @@ pub const Renderer3D = struct {
         }
     }
 
-    /// 用当前 yaw/pitch 投影网格并绘制边和面
-    pub fn drawMesh(self: *Renderer3D, canvas: *Canvas, mesh: types.Mesh, projected: []TexVertex, color: Color) void {
-        const abs = self.node.getAbsArea();
-        const cx = @as(f32, @floatFromInt(abs.x + @divTrunc(abs.w, 2)));
-        const cy = @as(f32, @floatFromInt(abs.y + @divTrunc(abs.h, 2)));
-
-        self.projectAll(mesh.vertices, projected, cx, cy);
-        self.drawProjected(canvas, mesh, projected, color);
+    /// 投影网格并绘制边和面
+    pub fn drawMesh(self: *Renderer3D, canvas: *Canvas, mesh: *types.Mesh, color: Color) void {
+        self.projectMesh(mesh);
+        self.updateDirty(mesh);
+        self.drawProjected(canvas, mesh, color);
     }
 
     /// 绘制已投影的网格（边 + 纹理面）
-    pub fn drawProjected(self: *Renderer3D, canvas: *Canvas, mesh: types.Mesh, projected: []const TexVertex, color: Color) void {
+    pub fn drawProjected(self: *Renderer3D, canvas: *Canvas, mesh: *const types.Mesh, color: Color) void {
         for (mesh.edges) |edge| {
-            const v0 = projected[edge[0]];
-            const v1 = projected[edge[1]];
+            const v0 = mesh.projected[edge[0]];
+            const v1 = mesh.projected[edge[1]];
             canvas.drawLine(@intFromFloat(v0.x), @intFromFloat(v0.y), @intFromFloat(v1.x), @intFromFloat(v1.y), color);
         }
 
         for (mesh.faces) |face| {
-            const v0 = projected[face.verts[0]];
-            const v1 = projected[face.verts[1]];
-            const v2 = projected[face.verts[2]];
+            const v0 = mesh.projected[face.verts[0]];
+            const v1 = mesh.projected[face.verts[1]];
+            const v2 = mesh.projected[face.verts[2]];
             if (face.tex) |tex| {
                 self.drawTexTriangle(
                     .{ .x = v0.x, .y = v0.y, .z = v0.z, .u = face.uvs[0][0], .v = face.uvs[0][1] },
