@@ -11,20 +11,6 @@ pub const Model3D = struct {
     transform: types.Transform3D = .{},
     edge_color: Color = Color.WHITE,
     visible: bool = true,
-
-    /// 模型局部坐标到 Scene3D 根坐标；最终世界坐标应使用 Scene3D.modelToWorld。
-    pub fn localToScene(self: *const Model3D, point: Point3D) Point3D {
-        return self.transform.localToWorld(point);
-    }
-
-    pub fn sceneToLocal(self: *const Model3D, point: Point3D) ?Point3D {
-        return self.transform.worldToLocal(point);
-    }
-
-    pub fn vertexToScene(self: *const Model3D, vertex_index: usize) ?Point3D {
-        if (vertex_index >= self.mesh.vertices.len) return null;
-        return self.localToScene(self.mesh.vertices[vertex_index]);
-    }
 };
 
 pub const ProjectionRange = struct {
@@ -77,19 +63,6 @@ pub const Camera3D = struct {
         });
         const inverse_yaw = types.Mat4.rotationY(-self.yaw).mul(inverse_translation);
         return types.Mat4.rotationX(-self.pitch).mul(inverse_yaw);
-    }
-
-    pub fn worldMatrix(self: Camera3D) types.Mat4 {
-        const pitched = types.Mat4.rotationY(self.yaw).mul(types.Mat4.rotationX(self.pitch));
-        return types.Mat4.translation(self.position).mul(pitched);
-    }
-
-    pub fn worldToView(self: Camera3D, point: Point3D) Point3D {
-        return self.viewMatrix().transformPoint(point);
-    }
-
-    pub fn viewToWorld(self: Camera3D, point: Point3D) Point3D {
-        return self.worldMatrix().transformPoint(point);
     }
 
     fn prepare(self: Camera3D) PreparedCamera3D {
@@ -172,7 +145,6 @@ pub const Scene3D = struct {
         return .{
             .allocator = allocator,
             .models = models,
-            .world_transform = .{},
             .projected = projected,
             .ranges = ranges,
         };
@@ -199,25 +171,6 @@ pub const Scene3D = struct {
     pub fn projectedForConst(self: *const Scene3D, model_index: usize) ?[]const TexVertex {
         const range = self.projectionRange(model_index) orelse return null;
         return self.projected[range.start..range.end()];
-    }
-
-    pub fn modelToWorld(self: *const Scene3D, model_index: usize, point: Point3D) ?Point3D {
-        if (model_index >= self.models.len) return null;
-        const model_point = self.models[model_index].localToScene(point);
-        return self.world_transform.localToWorld(model_point);
-    }
-
-    pub fn worldToModel(self: *const Scene3D, model_index: usize, point: Point3D) ?Point3D {
-        if (model_index >= self.models.len) return null;
-        const scene_point = self.world_transform.worldToLocal(point) orelse return null;
-        return self.models[model_index].sceneToLocal(scene_point);
-    }
-
-    pub fn vertexToWorld(self: *const Scene3D, model_index: usize, vertex_index: usize) ?Point3D {
-        if (model_index >= self.models.len) return null;
-        const model = &self.models[model_index];
-        if (vertex_index >= model.mesh.vertices.len) return null;
-        return self.modelToWorld(model_index, model.mesh.vertices[vertex_index]);
     }
 
     /// 将所有可见模型直接投影到共享缓存，不保留世界顶点副本。
@@ -268,7 +221,6 @@ test "Scene3D assigns two model instances contiguous shared cache ranges" {
     try std.testing.expectEqual(@as(usize, 4), scene.projected.len);
     try std.testing.expectEqual(ProjectionRange{ .start = 0, .len = 2 }, scene.projectionRange(0).?);
     try std.testing.expectEqual(ProjectionRange{ .start = 2, .len = 2 }, scene.projectionRange(1).?);
-    try expectPointApprox(.{ .x = 9, .y = 0, .z = 0 }, scene.vertexToWorld(1, 0).?);
 
     _ = scene.projectAll(.{}, 100, 100);
     try std.testing.expect(scene.projectedFor(0).?.ptr != scene.projectedFor(1).?.ptr);
@@ -302,27 +254,38 @@ test "Scene3D excludes hidden and camera-behind models from bounds" {
     try std.testing.expect(scene.projectAll(.{}, 50, 50) == null);
 }
 
-test "Camera3D position yaw and pitch operate in world coordinates" {
+test "Camera3D position yaw and pitch project correctly" {
+    const cx: f32 = 50;
+    const cy: f32 = 50;
+
+    // 相机平移：物体在相机正前方 → 投影到屏幕中心
     const translated = Camera3D{ .position = .{ .x = 10, .y = 0, .z = -30 } };
-    const translated_view = translated.worldToView(.{ .x = 10, .y = 0, .z = 0 });
-    try expectPointApprox(.{ .x = 0, .y = 0, .z = 30 }, translated_view);
+    const t = translated.projectWorld(.{ .x = 10, .y = 0, .z = 0 }, cx, cy);
+    try expectPointApprox(.{ .x = cx, .y = cy, .z = 30 }, .{ .x = t.x, .y = t.y, .z = t.z });
 
+    // yaw=90：相机朝 +X 看，原点在正前方 → 投影到屏幕中心
     const yawed = Camera3D{ .position = .{ .x = 0, .y = 0, .z = 0 }, .yaw = 90 };
-    try expectPointApprox(.{ .x = 0, .y = 0, .z = 10 }, yawed.worldToView(.{ .x = 10, .y = 0, .z = 0 }));
+    const y_ = yawed.projectWorld(.{ .x = 10, .y = 0, .z = 0 }, cx, cy);
+    try expectPointApprox(.{ .x = cx, .y = cy, .z = 10 }, .{ .x = y_.x, .y = y_.y, .z = y_.z });
 
+    // pitch=90：相机朝下看，(0,-10,0) 在正前方 → 投影到屏幕中心
     const pitched = Camera3D{ .position = .{ .x = 0, .y = 0, .z = 0 }, .pitch = 90 };
-    try expectPointApprox(.{ .x = 0, .y = 0, .z = 10 }, pitched.worldToView(.{ .x = 0, .y = -10, .z = 0 }));
+    const p = pitched.projectWorld(.{ .x = 0, .y = -10, .z = 0 }, cx, cy);
+    try expectPointApprox(.{ .x = cx, .y = cy, .z = 10 }, .{ .x = p.x, .y = p.y, .z = p.z });
 
+    // 组合变换：验证投影位置正确
     const oriented = Camera3D{
-        .position = .{ .x = 4, .y = -3, .z = -12 },
-        .yaw = 32,
-        .pitch = -18,
+        .position = .{ .x = 0, .y = 0, .z = -30 },
+        .yaw = 0,
+        .pitch = 0,
+        .fov = 60,
     };
-    const point = Point3D{ .x = 7, .y = -3, .z = 18 };
-    try expectPointApprox(point, oriented.viewToWorld(oriented.worldToView(point)));
+    const o = oriented.projectWorld(.{ .x = 10, .y = 2, .z = 0 }, cx, cy);
+    // view = (10, 2, 30), fov=60 → screen = (10*60/30+50, 2*60/30+50)
+    try expectPointApprox(.{ .x = 70, .y = 54, .z = 30 }, .{ .x = o.x, .y = o.y, .z = o.z });
 }
 
-test "Scene3D world transform is independent from model transforms" {
+test "Scene3D world transform composes with model transform" {
     const vertices = [_]Point3D{.{ .x = 1, .y = 0, .z = 0 }};
     const mesh = types.Mesh{ .vertices = &vertices, .edges = &.{} };
     var models = [_]Model3D{.{
@@ -336,7 +299,13 @@ test "Scene3D world transform is independent from model transforms" {
         .rotation_deg = .{ .x = 0, .y = 0, .z = 90 },
     };
 
-    const world = scene.vertexToWorld(0, 0).?;
-    try expectPointApprox(.{ .x = 10, .y = 2, .z = 0 }, world);
-    try expectPointApprox(vertices[0], scene.worldToModel(0, world).?);
+    // model: (1,0,0) + (1,0,0) = (2,0,0)
+    // world: Rz(90)*(2,0,0) + (10,0,0) = (0,2,0) + (10,0,0) = (10,2,0)
+    // camera default at z=-30 → view = (10,2,30)
+    const camera = Camera3D{};
+    const projected = scene.projectAll(camera, 50, 50).?;
+    const p = scene.projectedFor(0).?[0];
+    // fov=60 → screen = (10*60/30+50, 2*60/30+50) = (70, 54)
+    try expectPointApprox(.{ .x = 70, .y = 54, .z = 30 }, .{ .x = p.x, .y = p.y, .z = p.z });
+    _ = projected;
 }

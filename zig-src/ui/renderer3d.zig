@@ -6,7 +6,6 @@ const core = @import("core.zig");
 const canvas_mod = @import("canvas.zig");
 const scene3d = @import("scene3d.zig");
 
-const Point3D = types.Point3D;
 const TexVertex = types.TexVertex;
 const FontSize = types.FontSize;
 const Rect = types.Rect;
@@ -61,27 +60,6 @@ pub const Renderer3D = struct {
 
     pub fn asNode(self: *Renderer3D) *Node {
         return &self.node;
-    }
-
-    /// 将一个世界坐标点投影到当前 Renderer3D 的屏幕空间。
-    pub fn projectWorld(self: *const Renderer3D, point: Point3D) TexVertex {
-        const abs = self.node.getAbsArea();
-        const screen_cx = @as(f32, @floatFromInt(abs.x + @divTrunc(abs.w, 2)));
-        const screen_cy = @as(f32, @floatFromInt(abs.y + @divTrunc(abs.h, 2)));
-        return self.camera.projectWorld(point, screen_cx, screen_cy);
-    }
-
-    /// 使用显式屏幕中心投影世界坐标点。
-    pub fn project(self: *const Renderer3D, point: Point3D, screen_cx: f32, screen_cy: f32) TexVertex {
-        return self.camera.projectWorld(point, screen_cx, screen_cy);
-    }
-
-    pub fn projectAll(self: *const Renderer3D, world_vertices: []const Point3D, out: []TexVertex, screen_cx: f32, screen_cy: f32) void {
-        self.camera.projectAll(world_vertices, out, screen_cx, screen_cy);
-    }
-
-    pub fn computeBounds(self: *const Renderer3D, projected: []const TexVertex) ?Rect {
-        return self.camera.computeBounds(projected);
     }
 
     /// 投影整个场景并更新场景级脏区域。应在 display.render() 前调用。
