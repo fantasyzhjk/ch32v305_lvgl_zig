@@ -10,7 +10,7 @@ const utils = @import("utils.zig");
 const Color = ui.Color565;
 const Renderer3D = ui.Renderer3D;
 
-var ui_pool: [24 * 1024]u8 = undefined;
+var ui_pool: [20 * 1024]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&ui_pool);
 
 var dvd_dx: i32 = 3;
@@ -52,7 +52,9 @@ fn formatTitleText(gpa: std.mem.Allocator) []const u8 {
 pub fn run() void {
     const gpa = fba.allocator();
 
-    var display = ui.Display.init(gpa, 16) catch unreachable;
+    var display = ui.Display.init(gpa, 20) catch |err| {
+        @panic(@errorName(err));
+    };
     display.bind();
 
     const title = display.addToScreen(ui.widgets.MarqueeLabel, .{
