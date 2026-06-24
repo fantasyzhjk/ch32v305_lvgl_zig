@@ -8,6 +8,7 @@ const event = @import("event.zig");
 const ui = @import("ui/ui.zig");
 const utils = @import("utils.zig");
 const Color = ui.Color565;
+const Renderer3D = ui.Renderer3D;
 
 var ui_pool: [24 * 1024]u8 = undefined;
 var fba = std.heap.FixedBufferAllocator.init(&ui_pool);
@@ -21,58 +22,30 @@ var target_yaw: f32 = 0;
 var target_pitch: f32 = 0;
 const decay: f32 = 0.10;
 
+const m = ui.FontSize.px12.metrics();
+const tex_w: i32 = @as(i32, @intCast(3)) * m.w;
+const tex_h: i32 = m.h;
 var tex_buf: [18 * 12]u16 = undefined;
 var tex_dirty: bool = true;
+
+const tw_f: f32 = @floatFromInt(tex_w);
+const th_f: f32 = @floatFromInt(tex_h);
 
 const cube_vertices = utils.createCubeVertices(20);
 const cube_edges = utils.autoGenEdges(&cube_vertices, 20.5);
 
 var pv: [8]ui.TexVertex = undefined;
 
-fn drawScene(r: *ui.Renderer3D, canvas: *ui.Canvas) void {
-    for (cube_edges) |edge| {
-        canvas.drawLine(
-            @intFromFloat(pv[edge[0]].x),
-            @intFromFloat(pv[edge[0]].y),
-            @intFromFloat(pv[edge[1]].x),
-            @intFromFloat(pv[edge[1]].y),
-            dvd_color,
-        );
-    }
+fn drawScene(r: *Renderer3D, canvas: *ui.Canvas) void {
+    const mesh: *ui.Mesh = @ptrCast(@alignCast(r.user_data));
+    r.drawProjected(canvas, mesh.*, &pv, dvd_color);
+}
 
-    const m = ui.FontSize.px12.metrics();
-    const tex_w: i32 = @as(i32, @intCast(3)) * m.w;
-    const tex_h: i32 = m.h;
-    if (tex_dirty) {
-        @memset(&tex_buf, 0x07E0);
-        r.compositeText(&tex_buf, @intCast(tex_w), 0, 0, "DVD", .px12, dvd_color);
-        tex_dirty = false;
-    }
-
-    const tw_f: f32 = @floatFromInt(tex_w);
-    const th_f: f32 = @floatFromInt(tex_h);
-    const key: u16 = 0x07E0;
-
-    r.drawTexTriangle(
-        .{ .x = pv[4].x, .y = pv[4].y, .z = pv[4].z, .u = tw_f, .v = 0 },
-        .{ .x = pv[5].x, .y = pv[5].y, .z = pv[5].z, .u = 0, .v = 0 },
-        .{ .x = pv[7].x, .y = pv[7].y, .z = pv[7].z, .u = tw_f, .v = th_f },
-        &tex_buf,
-        tex_w,
-        tex_h,
-        tex_w,
-        key,
-    );
-    r.drawTexTriangle(
-        .{ .x = pv[5].x, .y = pv[5].y, .z = pv[5].z, .u = 0, .v = 0 },
-        .{ .x = pv[6].x, .y = pv[6].y, .z = pv[6].z, .u = 0, .v = th_f },
-        .{ .x = pv[7].x, .y = pv[7].y, .z = pv[7].z, .u = tw_f, .v = th_f },
-        &tex_buf,
-        tex_w,
-        tex_h,
-        tex_w,
-        key,
-    );
+fn updateTexture(r: *Renderer3D) void {
+    if (!tex_dirty) return;
+    @memset(&tex_buf, 0x07E0);
+    r.compositeText(&tex_buf, @intCast(tex_w), 0, 0, "DVD", .px12, dvd_color);
+    tex_dirty = false;
 }
 
 fn formatTitleText(gpa: std.mem.Allocator) []const u8 {
@@ -98,10 +71,30 @@ pub fn run() void {
         .offset = lcd.WIDTH,
     }) catch unreachable;
 
+    const tex_desc = ui.Texture{
+        .pixels = &tex_buf,
+        .w = tex_w,
+        .h = tex_h,
+        .stride = tex_w,
+        .color_key = 0x07E0,
+    };
+
+    var cube_faces = [_]ui.Face{
+        .{ .verts = .{ 4, 5, 7 }, .uvs = .{ .{ tw_f, 0 }, .{ 0, 0 }, .{ tw_f, th_f } }, .tex = tex_desc },
+        .{ .verts = .{ 5, 6, 7 }, .uvs = .{ .{ 0, 0 }, .{ 0, th_f }, .{ tw_f, th_f } }, .tex = tex_desc },
+    };
+
+    var cube_mesh = ui.Mesh{
+        .vertices = &cube_vertices,
+        .edges = cube_edges,
+        .faces = &cube_faces,
+    };
+
     var renderer = display.addToScreen(ui.Renderer3D, .{
-        .area = ui.rect(20, 20, 120, 120),
+        .area = ui.rect(70, 70, 120, 120),
     }) catch unreachable;
     renderer.user_draw = drawScene;
+    renderer.user_data = &cube_mesh;
     const dvd_node = renderer.asNode();
 
     const items: [4]ui.widgets.List.Item = .{
@@ -118,7 +111,6 @@ pub fn run() void {
     var last_frame: u32 = 0;
 
     while (true) {
-        // 事件处理
         while (true) {
             const ev = event.poll();
             switch (ev) {
@@ -194,7 +186,8 @@ pub fn run() void {
                 list.select(@intCast(utils.randRange(0, 3)));
             }
 
-            dvd_node.setPos(new_x, new_y);
+            // dvd_node.setPos(new_x, new_y);
+            updateTexture(renderer);
             list.update();
             renderer.updateDirty(&cube_vertices, &pv);
             display.render();

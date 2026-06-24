@@ -33,6 +33,7 @@ pub const Renderer3D = struct {
 
     // 用户自定义绘制回调
     user_draw: ?*const fn (renderer: *Renderer3D, canvas: *Canvas) void = null,
+    user_data: ?*anyopaque = null,
 
     pub const Options = struct {
         area: Rect,
@@ -74,11 +75,12 @@ pub const Renderer3D = struct {
             if (v.y > max_y) max_y = v.y;
         }
 
+        // 向外扩展 1 像素，补偿 drawLine 整数取整和像素半径
         return Rect.init(
-            @intFromFloat(@floor(min_x)),
-            @intFromFloat(@floor(min_y)),
-            @intFromFloat(@ceil(max_x - min_x)),
-            @intFromFloat(@ceil(max_y - min_y)),
+            @as(i32, @intFromFloat(@floor(min_x))) - 1,
+            @as(i32, @intFromFloat(@floor(min_y))) - 1,
+            @as(i32, @intFromFloat(@ceil(max_x - min_x))) + 2,
+            @as(i32, @intFromFloat(@ceil(max_y - min_y))) + 2,
         );
     }
 
@@ -143,6 +145,43 @@ pub const Renderer3D = struct {
     pub fn projectAll(self: *const Renderer3D, vertices: []const Point3D, out: []TexVertex, screen_cx: f32, screen_cy: f32) void {
         for (vertices, 0..) |v, i| {
             out[i] = self.project(v, screen_cx, screen_cy);
+        }
+    }
+
+    /// 用当前 yaw/pitch 投影网格并绘制边和面
+    pub fn drawMesh(self: *Renderer3D, canvas: *Canvas, mesh: types.Mesh, projected: []TexVertex, color: Color) void {
+        const abs = self.node.getAbsArea();
+        const cx = @as(f32, @floatFromInt(abs.x + @divTrunc(abs.w, 2)));
+        const cy = @as(f32, @floatFromInt(abs.y + @divTrunc(abs.h, 2)));
+
+        self.projectAll(mesh.vertices, projected, cx, cy);
+        self.drawProjected(canvas, mesh, projected, color);
+    }
+
+    /// 绘制已投影的网格（边 + 纹理面）
+    pub fn drawProjected(self: *Renderer3D, canvas: *Canvas, mesh: types.Mesh, projected: []const TexVertex, color: Color) void {
+        for (mesh.edges) |edge| {
+            const v0 = projected[edge[0]];
+            const v1 = projected[edge[1]];
+            canvas.drawLine(@intFromFloat(v0.x), @intFromFloat(v0.y), @intFromFloat(v1.x), @intFromFloat(v1.y), color);
+        }
+
+        for (mesh.faces) |face| {
+            const v0 = projected[face.verts[0]];
+            const v1 = projected[face.verts[1]];
+            const v2 = projected[face.verts[2]];
+            if (face.tex) |tex| {
+                self.drawTexTriangle(
+                    .{ .x = v0.x, .y = v0.y, .z = v0.z, .u = face.uvs[0][0], .v = face.uvs[0][1] },
+                    .{ .x = v1.x, .y = v1.y, .z = v1.z, .u = face.uvs[1][0], .v = face.uvs[1][1] },
+                    .{ .x = v2.x, .y = v2.y, .z = v2.z, .u = face.uvs[2][0], .v = face.uvs[2][1] },
+                    tex.pixels,
+                    tex.w,
+                    tex.h,
+                    tex.stride,
+                    tex.color_key,
+                );
+            }
         }
     }
 

@@ -158,3 +158,26 @@ pub fn alignedX(area: Rect, content_w: i32, text_align: Align) i32 {
 pub fn absI32(value: i32) i32 {
     return if (value < 0) -value else value;
 }
+
+/// 3D 纹理
+pub const Texture = struct {
+    pixels: []const u16,
+    w: i32,
+    h: i32,
+    stride: i32,
+    color_key: u16 = 0xFFFF,
+};
+
+/// 三角形面：3 个顶点索引 + 对应 UV + 可选纹理
+pub const Face = struct {
+    verts: [3]usize,
+    uvs: [3][2]f32,
+    tex: ?Texture = null,
+};
+
+/// 通用 3D 网格
+pub const Mesh = struct {
+    vertices: []const Point3D,
+    edges: []const [2]usize,
+    faces: []const Face = &.{},
+};
