@@ -101,8 +101,15 @@ pub fn build(b: *std.Build) void {
         .flags = c_flags,
     });
 
-    // deps.addLvgl(b, exe, c_flags);
-    deps.addTusb(b, exe, c_flags);
+    // const lvgl_lib = deps.addLvgl(b, target, optimize, c_flags);
+    // exe.root_module.linkLibrary(lvgl_lib);
+
+    const tusb_lib = deps.addTusb(b, target, optimize, c_flags);
+    exe.root_module.linkLibrary(tusb_lib);
+    exe.root_module.addIncludePath(b.path("deps/tusb/src"));
+    exe.root_module.addIncludePath(b.path("deps/tusb/hw"));
+    exe.root_module.addCMacro("CFG_TUSB_MCU", "OPT_MCU_CH32V307");
+    exe.root_module.addCMacro("CFG_TUD_WCH_USBIP_USBHS", "1");
 
     const elf_install = b.addInstallBinFile(
         exe.getEmittedBin(),

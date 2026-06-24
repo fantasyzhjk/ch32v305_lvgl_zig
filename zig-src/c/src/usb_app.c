@@ -1,5 +1,5 @@
-#include "tusb.h"
 #include "ch32v30x.h"
+#include "tusb.h"
 
 void usb_app_init(void)
 {

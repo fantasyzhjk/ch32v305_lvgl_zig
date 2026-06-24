@@ -25,12 +25,22 @@ fn collectCFiles(
 
 pub fn addTusb(
     b: *std.Build,
-    exe: *std.Build.Step.Compile,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
     flags: []const []const u8,
-) void {
-    exe.root_module.addIncludePath(b.path("deps/tusb/src"));
-    exe.root_module.addIncludePath(b.path("deps/tusb/hw"));
-    exe.root_module.addCSourceFiles(.{
+) *std.Build.Step.Compile {
+    const tusb_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    tusb_mod.addIncludePath(b.path("deps/tusb/src"));
+    tusb_mod.addIncludePath(b.path("deps/tusb/hw"));
+    tusb_mod.addIncludePath(b.path("zig-src/c/inc"));
+    tusb_mod.addIncludePath(b.path("hal/Core"));
+    tusb_mod.addIncludePath(b.path("hal/Peripheral/inc"));
+
+    tusb_mod.addCSourceFiles(.{
         .root = b.path("deps/tusb/src"),
         .files = &.{
             // common
@@ -71,54 +81,24 @@ pub fn addTusb(
         },
         .flags = flags,
     });
-    exe.root_module.addCMacro("CFG_TUSB_MCU", "OPT_MCU_CH32V307");
-    exe.root_module.addCMacro("CFG_TUD_WCH_USBIP_USBHS", "1");
+    tusb_mod.addCMacro("CFG_TUSB_MCU", "OPT_MCU_CH32V307");
+    tusb_mod.addCMacro("CFG_TUD_WCH_USBIP_USBHS", "1");
+    tusb_mod.addCMacro("ARCH_RISCV", "1");
+
+    const lib = b.addLibrary(.{
+        .name = "tusb",
+        .root_module = tusb_mod,
+    });
+
+    return lib;
 }
 
 pub fn addLvgl(
     b: *std.Build,
-    exe: *std.Build.Step.Compile,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
     flags: []const []const u8,
-    // target: std.Build.ResolvedTarget,
-    // optimize: std.builtin.OptimizeMode,
-) void {
-    // const lvgl_mod = b.createModule(.{
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-
-    // lvgl_mod.addIncludePath(b.path("deps/lvgl"));
-    // // lvgl_mod.addCMacro("LV_CONF_INCLUDE_SIMPLE", "1");
-
-    // var c_files: std.ArrayList([]const u8) = .empty;
-
-    // const src_abs = b.path("deps/lvgl/src").getPath(b);
-
-    // var threaded: std.Io.Threaded = .init(b.allocator, .{});
-    // const io = threaded.io();
-    // defer threaded.deinit();
-
-    // collectCFiles(b.allocator, io, src_abs, &c_files) catch @panic("collect lvgl c files failed");
-
-    // lvgl_mod.addCSourceFiles(.{
-    //     .root = b.path("deps/lvgl/src"),
-    //     .files = c_files.items,
-    //     .flags = &.{
-    //         "-std=c99",
-    //         "-Os",
-    //     },
-    // });
-
-    // const lvgl_lib = b.addLibrary(.{
-    //     .name = "lvgl",
-    //     .root_module = lvgl_mod,
-    // });
-
-    // exe.root_module.linkLibrary(lvgl_lib);
-
-    // exe.root_module.addIncludePath(b.path("deps/lvgl"));
-    // exe.root_module.addCMacro("LV_CONF_INCLUDE_SIMPLE", "1");
-
+) *std.Build.Step.Compile {
     var threaded: std.Io.Threaded = .init(b.allocator, .{});
     const io = threaded.io();
     defer threaded.deinit();
@@ -126,17 +106,31 @@ pub fn addLvgl(
     const src_abs = b.path("deps/lvgl/src").getPath(b);
     collectCFiles(b.allocator, io, src_abs, &c_files) catch @panic("collect lvgl c files failed");
 
-    exe.root_module.addIncludePath(b.path("deps/lvgl"));
-    exe.root_module.addIncludePath(b.path("deps/lvgl/src"));
-    exe.root_module.addIncludePath(b.path("deps/lvgl/examples"));
-    exe.root_module.addCSourceFiles(.{
+    const lvgl_mod = b.createModule(.{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    lvgl_mod.addIncludePath(b.path("deps/lvgl"));
+    lvgl_mod.addIncludePath(b.path("deps/lvgl/src"));
+    lvgl_mod.addIncludePath(b.path("deps/lvgl/examples"));
+    lvgl_mod.addIncludePath(b.path("zig-src/c/inc"));
+
+    lvgl_mod.addCSourceFiles(.{
         .root = b.path("deps/lvgl/src"),
         .files = c_files.items,
         .flags = flags,
     });
 
-    exe.root_module.addCSourceFile(.{
+    lvgl_mod.addCSourceFile(.{
         .file = b.path("deps/lvgl/examples/widgets/calendar/lv_example_calendar_basic.c"),
         .flags = flags,
     });
+
+    const lib = b.addLibrary(.{
+        .name = "lvgl",
+        .root_module = lvgl_mod,
+    });
+
+    return lib;
 }
