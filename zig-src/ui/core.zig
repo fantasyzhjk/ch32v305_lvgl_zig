@@ -126,6 +126,8 @@ pub const Node = struct {
 };
 
 pub const Display = struct {
+    pub const PostRenderFn = *const fn (buf: []u16, buf_w: i32, rect: Rect) void;
+
     screen: Node,
     dirty_areas: [dirty_max_areas]Rect = undefined,
     dirty_count: usize = 0,
@@ -134,6 +136,7 @@ pub const Display = struct {
     allocator: std.mem.Allocator,
 
     active_buf: u1 = 0,
+    post_render: ?PostRenderFn = null,
 
     pub var current: ?*Display = null;
 
@@ -316,6 +319,10 @@ pub const Display = struct {
                 var canvas = Canvas.init(chunk_rect, self.activeBuf()[0..buf_len]);
                 canvas.fillRect(chunk_rect.x, chunk_rect.y, chunk_rect.w, chunk_rect.h, default_bg);
                 self.renderNodeRecursive(&self.screen, &canvas, chunk_rect);
+
+                if (self.post_render) |cb| {
+                    cb(canvas.buf[0..buf_len], canvas.area.w, canvas.area);
+                }
 
                 lcd.waitDmaDone();
                 canvas.flush();

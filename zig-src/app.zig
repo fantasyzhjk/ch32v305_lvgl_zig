@@ -6,6 +6,7 @@ const tick = @import("tick.zig");
 const lcd = @import("lcd.zig");
 const event = @import("event.zig");
 const ui = @import("ui/ui.zig");
+const shader = ui.shader;
 const utils = @import("utils.zig");
 const Color = ui.Color565;
 const Renderer3D = ui.Renderer3D;
@@ -56,6 +57,7 @@ pub fn run() void {
         @panic(@errorName(err));
     };
     display.bind();
+    display.post_render = shader.gameBoyPostRender;
 
     const title = display.addToScreen(ui.widgets.MarqueeLabel, .{
         .area = ui.rect(0, 0, lcd.WIDTH, 20),
@@ -138,7 +140,8 @@ pub fn run() void {
         }
 
         const now = tick.millis();
-        if (now -% last_frame >= 16) {
+        const dt_ms = now -% last_frame;
+        if (dt_ms >= 16) {
             last_frame = now;
 
             title.setText(formatTitleText(gpa));

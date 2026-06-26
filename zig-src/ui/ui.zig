@@ -6,6 +6,7 @@ pub const core = @import("core.zig");
 pub const widgets = @import("widgets/core.zig");
 pub const scene3d = @import("scene3d.zig");
 pub const renderer3d = @import("renderer3d.zig");
+pub const shader = @import("shader.zig");
 
 pub const Align = types.Align;
 pub const FontSize = types.FontSize;
